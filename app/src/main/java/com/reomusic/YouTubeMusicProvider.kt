@@ -57,28 +57,7 @@ class YouTubeMusicProvider : MusicProvider {
 
                 extractor.initialPage.items
                     .filterIsInstance<StreamInfoItem>()
-                    .mapNotNull { item ->
-
-                        val videoId =
-                            extractVideoId(item.url)
-
-                        if (videoId.isBlank()) {
-                            return@mapNotNull null
-                        }
-
-                        MusicTrack(
-                            videoId = videoId,
-                            title = item.name,
-                            artist = item.uploaderName ?: "",
-                            thumbnailUrl =
-                                item.thumbnails
-                                    .firstOrNull()
-                                    ?.url
-                                    ?: "",
-                            durationSeconds =
-                                item.duration
-                        )
-                    }
+                    .mapNotNull(::toTrack)
 
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -91,48 +70,94 @@ class YouTubeMusicProvider : MusicProvider {
     ): String? =
         withContext(Dispatchers.IO) {
 
-            if (videoId.isBlank()) {
-                return@withContext null
+            try {
+                pickAudioStream(fetchStreamInfo(videoId))
+            } catch (e: Exception) {
+                e.printStackTrace()
+                null
             }
+        }
+
+    override suspend fun resolveTrack(
+        videoId: String
+    ): StreamResolution? =
+        withContext(Dispatchers.IO) {
 
             try {
+                val info = fetchStreamInfo(videoId) ?: return@withContext null
 
-                val videoUrl =
-                    "https://www.youtube.com/watch?v=$videoId"
+                val url = pickAudioStream(info) ?: return@withContext null
 
-                val streamInfo =
-                    StreamInfo.getInfo(
-                        YoutubeService(0),
-                        videoUrl
-                    )
+                val related =
+                    info.relatedItems
+                        .orEmpty()
+                        .filterIsInstance<StreamInfoItem>()
+                        .mapNotNull(::toTrack)
+                        // Never recommend the track that's already playing
+                        .filter { it.videoId != videoId }
 
-                /*
-                 * Choose an audio-only stream.
-                 *
-                 * We deliberately avoid video streams because
-                 * REO is an audio player. When Data Saver is on
-                 * (see AppSettings), we pick the lowest-bitrate
-                 * stream instead of the highest to save mobile data.
-                 */
-                val candidates =
-                    streamInfo.audioStreams
-                        .filter { stream ->
-                            stream.content.isNotBlank()
-                        }
-
-                if (AppSettings.dataSaverEnabled) {
-                    candidates.minByOrNull { stream -> stream.averageBitrate }
-                        ?.content
-                } else {
-                    candidates.maxByOrNull { stream -> stream.averageBitrate }
-                        ?.content
-                }
+                StreamResolution(
+                    streamUrl = url,
+                    relatedTracks = related
+                )
 
             } catch (e: Exception) {
                 e.printStackTrace()
                 null
             }
         }
+
+    private fun fetchStreamInfo(videoId: String): StreamInfo? {
+
+        if (videoId.isBlank()) {
+            return null
+        }
+
+        val videoUrl = "https://www.youtube.com/watch?v=$videoId"
+
+        return StreamInfo.getInfo(
+            YoutubeService(0),
+            videoUrl
+        )
+    }
+
+    /**
+     * Choose an audio-only stream.
+     *
+     * We deliberately avoid video streams because REO is an audio
+     * player. When Data Saver is on (see AppSettings), we pick the
+     * lowest-bitrate stream instead of the highest to save mobile data.
+     */
+    private fun pickAudioStream(info: StreamInfo?): String? {
+
+        val candidates =
+            info?.audioStreams
+                ?.filter { stream -> stream.content.isNotBlank() }
+                ?: return null
+
+        return if (AppSettings.dataSaverEnabled) {
+            candidates.minByOrNull { stream -> stream.averageBitrate }?.content
+        } else {
+            candidates.maxByOrNull { stream -> stream.averageBitrate }?.content
+        }
+    }
+
+    private fun toTrack(item: StreamInfoItem): MusicTrack? {
+
+        val videoId = extractVideoId(item.url)
+
+        if (videoId.isBlank()) {
+            return null
+        }
+
+        return MusicTrack(
+            videoId = videoId,
+            title = item.name,
+            artist = item.uploaderName ?: "",
+            thumbnailUrl = item.thumbnails.firstOrNull()?.url ?: "",
+            durationSeconds = item.duration
+        )
+    }
 
     private fun extractVideoId(
         url: String
