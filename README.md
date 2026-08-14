@@ -2,9 +2,14 @@
 
 Lightweight YouTube Music client.
 
-## GitHub build
+## GitHub build 
 
-Push the project to GitHub. The workflow in `.github/workflows/build.yml`
-automatically builds a debug APK.
+To download the application Open **Actions → Build REO Music APK → Artifacts** to get the APK.
 
-Open **Actions → Build REO Music APK → Artifacts** to get the APK.
+
+💻 just a simple application
+
+
+
+### Rights ?
+all rights to the respected owners.
