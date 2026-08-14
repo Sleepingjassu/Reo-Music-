@@ -1,0 +1,3 @@
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="#1EFFFFFF">
+    <item android:drawable="@drawable/bg_card_rounded"/>
+</ripple>

@@ -1,0 +1,10 @@
+IMPORTANT:
+This setup expects the standard Gradle wrapper files:
+gradlew
+gradlew.bat
+gradle/wrapper/gradle-wrapper.jar
+gradle/wrapper/gradle-wrapper.properties
+
+If your existing project already has these, copy them into the repository.
+If you are starting from this folder alone, use GitHub's Gradle setup or add
+the wrapper files before running the workflow.

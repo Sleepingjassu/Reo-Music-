@@ -1,0 +1,23 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Android
+local.properties
+captures/
+.externalNativeBuild/
+.cxx/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# AndroidIDE
+.acside/
+.kotlin/
+
+# OS
+.DS_Store
+Thumbs.db
