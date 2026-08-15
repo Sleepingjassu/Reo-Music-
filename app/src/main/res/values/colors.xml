@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- LIGHT theme -->
+
+    <color name="bg_black">#F7F5F3</color>
+    <color name="surface_1">#FFFFFF</color>
+    <color name="surface_2">#F0ECE8</color>
+    <color name="surface_3">#E4DED8</color>
+    <color name="divider">#E1DAD3</color>
+
+    <color name="accent">#9B6FBF</color>
+    <color name="accent_soft">#B48FD4</color>
+    <color name="accent_champagne">#C98F8A</color>
+    <color name="accent_dim">#D8CBE3</color>
+
+    <color name="text_primary">#1C1A1F</color>
+    <color name="text_secondary">#4A454E</color>
+    <color name="text_muted">#7A7480</color>
+    <color name="text_faint">#A79FAB</color>
+
+    <color name="transparent">#00000000</color>
+    <color name="scrim">#B3FFFFFF</color>
+</resources>
