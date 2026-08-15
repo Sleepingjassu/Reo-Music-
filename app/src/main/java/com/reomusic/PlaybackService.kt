@@ -2,236 +2,157 @@ package com.reomusic
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
+import androidx.media3.common.SessionCommand
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 
+@UnstableApi
 class PlaybackService : MediaSessionService() {
 
     private lateinit var player: ExoPlayer
     private lateinit var mediaSession: MediaSession
 
-    private val serviceScope =
-        CoroutineScope(
-            SupervisorJob() + Dispatchers.IO
-        )
+    private val sleepTimerHandler = Handler(Looper.getMainLooper())
+    private var sleepTimerEndAtMillis: Long? = null
+    private var sleepTimerEndOfTrack: Boolean = false
 
-    private val musicProvider: MusicProvider =
-        YouTubeMusicProvider()
+    private val sleepTimerCheck = object : Runnable {
+        override fun run() {
+            val endAt = sleepTimerEndAtMillis
+            if (endAt != null && System.currentTimeMillis() >= endAt) {
+                player.pause()
+                sleepTimerEndAtMillis = null
+            }
+            sleepTimerHandler.postDelayed(this, 10_000L)
+        }
+    }
+
+    private val sleepTimerPlayerListener = object : Player.Listener {
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            if (sleepTimerEndOfTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                player.pause()
+                sleepTimerEndOfTrack = false
+            }
+        }
+    }
 
     override fun onCreate() {
-
         super.onCreate()
 
         AppSettings.init(this)
+        OfflineCacheManager.init(this)
 
-        val audioAttributes =
-            AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(
-                    C.AUDIO_CONTENT_TYPE_MUSIC
-                )
-                .build()
+        val audioAttributes = AudioAttributes.Builder()
+            .setUsage(C.USAGE_MEDIA)
+            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+            .build()
 
-        player =
-            ExoPlayer.Builder(this)
-                .setAudioAttributes(
-                    audioAttributes,
-                    true
-                )
-                .setHandleAudioBecomingNoisy(true)
-                .build()
+        // Every stream automatically flows through the shared disk cache,
+        // so replays are instant/offline-capable without any extra work.
+        val mediaSourceFactory = DefaultMediaSourceFactory(this)
+            .setDataSourceFactory(OfflineCacheManager.cacheDataSourceFactory())
 
-        val sessionActivityIntent =
-            Intent(
-                this,
-                MainActivity::class.java
-            )
+        player = ExoPlayer.Builder(this)
+            .setAudioAttributes(audioAttributes, true)
+            .setHandleAudioBecomingNoisy(true)
+            .setMediaSourceFactory(mediaSourceFactory)
+            .build()
 
-        val pendingIntent =
-            PendingIntent.getActivity(
-                this,
-                0,
-                sessionActivityIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or
-                    PendingIntent.FLAG_IMMUTABLE
-            )
+        player.addListener(sleepTimerPlayerListener)
 
-        mediaSession =
-            MediaSession.Builder(
-                this,
-                player
-            )
-                .setSessionActivity(
-                    pendingIntent
-                )
-                .build()
+        val sessionActivityIntent = Intent(this, MainActivity::class.java)
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            sessionActivityIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        mediaSession = MediaSession.Builder(this, player)
+            .setSessionActivity(pendingIntent)
+            .setCallback(SleepTimerSessionCallback())
+            .build()
+
+        sleepTimerHandler.post(sleepTimerCheck)
     }
 
-    fun playQueue(
-        tracks: List<MusicTrack>,
-        startIndex: Int = 0
-    ) {
+    private inner class SleepTimerSessionCallback : MediaSession.Callback {
 
-        if (tracks.isEmpty()) {
-            return
+        override fun onConnect(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): MediaSession.ConnectionResult {
+
+            val defaultResult = super.onConnect(session, controller)
+
+            val sessionCommands = defaultResult.availableSessionCommands.buildUpon()
+                .add(SessionCommand(SleepTimerCommands.ACTION_SET_DURATION, Bundle.EMPTY))
+                .add(SessionCommand(SleepTimerCommands.ACTION_SET_END_OF_TRACK, Bundle.EMPTY))
+                .add(SessionCommand(SleepTimerCommands.ACTION_CANCEL, Bundle.EMPTY))
+                .build()
+
+            return MediaSession.ConnectionResult.accept(
+                sessionCommands,
+                defaultResult.availablePlayerCommands
+            )
         }
 
-        serviceScope.launch {
+        override fun onCustomCommand(
+            session: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            customCommand: SessionCommand,
+            args: Bundle
+        ): ListenableFuture<androidx.media3.session.SessionResult> {
 
-            val mediaItems =
-                tracks.mapNotNull { track ->
+            when (customCommand.customAction) {
 
-                    try {
-
-                        val streamUrl =
-                            musicProvider
-                                .getStreamUrl(
-                                    track.videoId
-                                )
-
-                        if (streamUrl.isNullOrBlank()) {
-                            return@mapNotNull null
-                        }
-
-                        MediaItem.Builder()
-                            .setMediaId(
-                                track.videoId
-                            )
-                            .setUri(streamUrl)
-                            .setMediaMetadata(
-                                MediaMetadata.Builder()
-                                    .setTitle(
-                                        track.title
-                                    )
-                                    .setArtist(
-                                        track.artist
-                                    )
-                                    .setAlbumTitle(
-                                        track.album
-                                    )
-                                    .setArtworkUri(
-                                        android.net.Uri.parse(
-                                            track.thumbnailUrl
-                                        )
-                                    )
-                                    .build()
-                            )
-                            .build()
-
-                    } catch (e: Exception) {
-
-                        e.printStackTrace()
-
-                        null
-                    }
+                SleepTimerCommands.ACTION_SET_DURATION -> {
+                    val durationMs = args.getLong(SleepTimerCommands.EXTRA_DURATION_MS, 0L)
+                    sleepTimerEndOfTrack = false
+                    sleepTimerEndAtMillis = if (durationMs > 0) {
+                        System.currentTimeMillis() + durationMs
+                    } else null
                 }
 
-            if (mediaItems.isEmpty()) {
-                return@launch
+                SleepTimerCommands.ACTION_SET_END_OF_TRACK -> {
+                    sleepTimerEndAtMillis = null
+                    sleepTimerEndOfTrack = true
+                }
+
+                SleepTimerCommands.ACTION_CANCEL -> {
+                    sleepTimerEndAtMillis = null
+                    sleepTimerEndOfTrack = false
+                }
             }
 
-            val safeIndex =
-                startIndex.coerceIn(
-                    0,
-                    mediaItems.lastIndex
-                )
-
-            launch(Dispatchers.Main) {
-
-                player.setMediaItems(
-                    mediaItems,
-                    safeIndex,
-                    0L
-                )
-
-                player.prepare()
-                player.play()
-            }
+            return Futures.immediateFuture(
+                androidx.media3.session.SessionResult(androidx.media3.session.SessionResult.RESULT_SUCCESS)
+            )
         }
     }
 
-    fun addToQueue(
-        track: MusicTrack
-    ) {
-
-        serviceScope.launch {
-
-            try {
-
-                val streamUrl =
-                    musicProvider
-                        .getStreamUrl(
-                            track.videoId
-                        )
-
-                if (streamUrl.isNullOrBlank()) {
-                    return@launch
-                }
-
-                val mediaItem =
-                    MediaItem.Builder()
-                        .setMediaId(
-                            track.videoId
-                        )
-                        .setUri(streamUrl)
-                        .setMediaMetadata(
-                            MediaMetadata.Builder()
-                                .setTitle(
-                                    track.title
-                                )
-                                .setArtist(
-                                    track.artist
-                                )
-                                .setAlbumTitle(
-                                    track.album
-                                )
-                                .setArtworkUri(
-                                    android.net.Uri.parse(
-                                        track.thumbnailUrl
-                                    )
-                                )
-                                .build()
-                        )
-                        .build()
-
-                launch(Dispatchers.Main) {
-
-                    player.addMediaItem(
-                        mediaItem
-                    )
-                }
-
-            } catch (e: Exception) {
-
-                e.printStackTrace()
-            }
-        }
-    }
-
-    override fun onGetSession(
-        controllerInfo: MediaSession.ControllerInfo
-    ): MediaSession {
-
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession {
         return mediaSession
     }
 
     override fun onDestroy() {
-
-        serviceScope.cancel()
-
+        sleepTimerHandler.removeCallbacksAndMessages(null)
+        player.removeListener(sleepTimerPlayerListener)
         mediaSession.release()
         player.release()
-
         super.onDestroy()
     }
 }

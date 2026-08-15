@@ -21,6 +21,11 @@
                 layout="@layout/screen_home" />
 
             <include
+                android:id="@+id/screen_library"
+                layout="@layout/screen_library"
+                android:visibility="gone" />
+
+            <include
                 android:id="@+id/screen_search"
                 layout="@layout/screen_search"
                 android:visibility="gone" />
@@ -168,6 +173,36 @@
             </LinearLayout>
 
             <LinearLayout
+                android:id="@+id/tab_library"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:orientation="vertical"
+                android:gravity="center"
+                android:clickable="true"
+                android:focusable="true"
+                android:background="?android:attr/selectableItemBackgroundBorderless">
+
+                <ImageView
+                    android:id="@+id/tab_library_icon"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:src="@drawable/ic_library"
+                    android:tint="@color/text_muted"
+                    android:contentDescription="Library" />
+
+                <TextView
+                    android:id="@+id/tab_library_label"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Library"
+                    android:textSize="11sp"
+                    android:textColor="@color/text_muted" />
+
+            </LinearLayout>
+
+            <LinearLayout
                 android:id="@+id/tab_settings"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
@@ -214,6 +249,38 @@
         <include
             android:id="@+id/screen_now_playing"
             layout="@layout/screen_now_playing" />
+
+    </FrameLayout>
+
+    <!-- Generic list overlay: Queue / Favorites / History / Downloads / Playlist detail -->
+    <FrameLayout
+        android:id="@+id/list_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg_black"
+        android:visibility="gone"
+        android:elevation="30dp"
+        android:fitsSystemWindows="true">
+
+        <include
+            android:id="@+id/screen_list"
+            layout="@layout/screen_list" />
+
+    </FrameLayout>
+
+    <!-- Equalizer overlay -->
+    <FrameLayout
+        android:id="@+id/equalizer_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg_black"
+        android:visibility="gone"
+        android:elevation="32dp"
+        android:fitsSystemWindows="true">
+
+        <include
+            android:id="@+id/screen_equalizer"
+            layout="@layout/screen_equalizer" />
 
     </FrameLayout>
 

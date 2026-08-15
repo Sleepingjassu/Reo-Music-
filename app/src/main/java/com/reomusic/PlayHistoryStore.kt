@@ -63,6 +63,11 @@ object PlayHistoryStore {
         }
     }
 
+    @Synchronized
+    fun clearAll() {
+        prefs?.edit()?.remove(KEY_HISTORY)?.apply()
+    }
+
     private fun toJson(track: MusicTrack): JSONObject {
         return JSONObject().apply {
             put("videoId", track.videoId)

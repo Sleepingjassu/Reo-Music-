@@ -51,9 +51,45 @@
     </LinearLayout>
 
     <ImageButton
+        android:id="@+id/item_heart"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:background="@drawable/ripple_circle_ghost"
+        android:src="@drawable/ic_heart_outline"
+        android:tint="@color/text_muted"
+        android:padding="8dp"
+        android:visibility="gone"
+        android:contentDescription="Like" />
+
+    <ImageButton
+        android:id="@+id/item_download"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="2dp"
+        android:background="@drawable/ripple_circle_ghost"
+        android:src="@drawable/ic_download"
+        android:tint="@color/text_muted"
+        android:padding="8dp"
+        android:visibility="gone"
+        android:contentDescription="Download" />
+
+    <ImageButton
+        android:id="@+id/item_remove"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="2dp"
+        android:background="@drawable/ripple_circle_ghost"
+        android:src="@drawable/ic_close"
+        android:tint="@color/text_muted"
+        android:padding="8dp"
+        android:visibility="gone"
+        android:contentDescription="Remove" />
+
+    <ImageButton
         android:id="@+id/item_play"
         android:layout_width="38dp"
         android:layout_height="38dp"
+        android:layout_marginStart="2dp"
         android:background="@drawable/ripple_circle_ghost"
         android:src="@drawable/ic_play"
         android:padding="9dp"
