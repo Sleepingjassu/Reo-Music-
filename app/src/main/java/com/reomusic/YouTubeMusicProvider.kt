@@ -154,7 +154,7 @@ class YouTubeMusicProvider : MusicProvider {
             videoId = videoId,
             title = item.name,
             artist = item.uploaderName ?: "",
-            thumbnailUrl = item.thumbnails.firstOrNull()?.url ?: "",
+            thumbnailUrl = item.thumbnails.maxByOrNull { thumb -> thumb.height }?.url ?: "",
             durationSeconds = item.duration
         )
     }

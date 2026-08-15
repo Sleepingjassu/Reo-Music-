@@ -68,6 +68,14 @@ object PlayHistoryStore {
         prefs?.edit()?.remove(KEY_HISTORY)?.apply()
     }
 
+    @Synchronized
+    fun remove(videoId: String) {
+        val current = getRecent().filterNot { it.videoId == videoId }
+        val array = JSONArray()
+        current.forEach { array.put(toJson(it)) }
+        prefs?.edit()?.putString(KEY_HISTORY, array.toString())?.apply()
+    }
+
     private fun toJson(track: MusicTrack): JSONObject {
         return JSONObject().apply {
             put("videoId", track.videoId)

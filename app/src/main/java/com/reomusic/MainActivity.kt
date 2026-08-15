@@ -105,10 +105,13 @@ class MainActivity : AppCompatActivity() {
     private lateinit var npQueueEmpty: TextView
 
     // Home screen
+    private lateinit var homeGreeting: TextView
     private lateinit var homeRecentSection: View
     private lateinit var homeRecentContainer: LinearLayout
+    private lateinit var homePicksSection: View
     private lateinit var homePicksHeader: TextView
     private lateinit var homePicksContainer: LinearLayout
+    private lateinit var homeDiscoverContainer: LinearLayout
     private lateinit var homeEmptyState: View
 
     // Search screen
@@ -357,10 +360,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        homeGreeting = findViewById(R.id.home_greeting)
         homeRecentSection = findViewById(R.id.home_recent_section)
         homeRecentContainer = findViewById(R.id.home_recent_container)
+        homePicksSection = findViewById(R.id.home_picks_section)
         homePicksHeader = findViewById(R.id.home_picks_header)
         homePicksContainer = findViewById(R.id.home_picks_container)
+        homeDiscoverContainer = findViewById(R.id.home_discover_container)
         homeEmptyState = findViewById(R.id.home_empty_state)
 
         searchInput = findViewById(R.id.search_input)
@@ -652,36 +658,101 @@ class MainActivity : AppCompatActivity() {
     // Home
     // ---------------------------------------------------------------
 
+    private val homeDiscoverSeeds = listOf(
+        "trending songs" to "Trending Now",
+        "top hits" to "Popular Right Now",
+        "chill lofi beats" to "Chill Vibes",
+        "workout motivation songs" to "Workout Mix",
+        "bollywood hit songs" to "Bollywood Hits",
+        "romantic love songs" to "Love Songs",
+        "top rock songs" to "Rock Classics",
+        "throwback 2000s hits" to "Throwback Hits"
+    )
+
     private fun loadHomeContent() {
 
         homeLoadJob?.cancel()
 
+        homeGreeting.text = timeOfDayGreeting()
+
         val recent = PlayHistoryStore.getRecent()
         homeRecentContainer.removeAllViews()
+        homePicksContainer.removeAllViews()
+        homeDiscoverContainer.removeAllViews()
+        homeEmptyState.visibility = View.GONE
 
         if (recent.isEmpty()) {
             homeRecentSection.visibility = View.GONE
-            homePicksHeader.visibility = View.GONE
-            homePicksContainer.removeAllViews()
-            homeEmptyState.visibility = View.VISIBLE
-            return
+            homePicksSection.visibility = View.GONE
+        } else {
+            homeRecentSection.visibility = View.VISIBLE
+            homePicksSection.visibility = View.VISIBLE
+            homePicksHeader.text = "Because you played \u201c${recent.first().title}\u201d"
+            recent.take(10).forEach { track -> addRecentCard(track) }
         }
-
-        homeEmptyState.visibility = View.GONE
-        homeRecentSection.visibility = View.VISIBLE
-        homePicksHeader.visibility = View.VISIBLE
-        homePicksHeader.text = "Because you played \u201c${recent.first().title}\u201d"
-
-        recent.take(10).forEach { track -> addRecentCard(track) }
-
-        homePicksContainer.removeAllViews()
 
         homeLoadJob = screenScope.launch {
-            val resolution = withContext(Dispatchers.IO) { musicProvider.resolveTrack(recent.first().videoId) }
-            val picks = resolution?.relatedTracks.orEmpty().take(12)
-            if (picks.isEmpty()) return@launch
-            picks.forEach { track -> addTrackRow(homePicksContainer, track, showHeart = true, showDownload = true) }
+
+            if (recent.isNotEmpty()) {
+                val resolution = withContext(Dispatchers.IO) { musicProvider.resolveTrack(recent.first().videoId) }
+                resolution?.relatedTracks.orEmpty().take(10).forEach { track ->
+                    addTrackRow(homePicksContainer, track)
+                }
+            }
+
+            // Always-on Spotify-style discovery rows, so the app never opens to a blank page.
+            var anyDiscoverLoaded = false
+            homeDiscoverSeeds.shuffled().take(4).forEach { (query, label) ->
+                val tracks = withContext(Dispatchers.IO) { musicProvider.search(query) }.take(10)
+                if (tracks.isNotEmpty()) {
+                    anyDiscoverLoaded = true
+                    addDiscoverSection(label, tracks)
+                }
+            }
+
+            if (!anyDiscoverLoaded && recent.isEmpty()) {
+                homeEmptyState.visibility = View.VISIBLE
+            }
         }
+    }
+
+    private fun timeOfDayGreeting(): String {
+        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+        return when {
+            hour < 5 -> "Late night listening."
+            hour < 12 -> "Good morning."
+            hour < 17 -> "Good afternoon."
+            hour < 21 -> "Good evening."
+            else -> "Good night."
+        }
+    }
+
+    private fun addDiscoverSection(title: String, tracks: List<MusicTrack>) {
+        val section = LayoutInflater.from(this).inflate(R.layout.item_home_section, homeDiscoverContainer, false)
+        section.findViewById<TextView>(R.id.section_title).text = title
+        val row = section.findViewById<LinearLayout>(R.id.section_row_container)
+
+        tracks.forEach { track ->
+            val card = LayoutInflater.from(this).inflate(R.layout.item_recent_card, row, false)
+            val art = card.findViewById<ImageView>(R.id.recent_art)
+            val cardTitle = card.findViewById<TextView>(R.id.recent_title)
+            val cardArtist = card.findViewById<TextView>(R.id.recent_artist)
+
+            cardTitle.text = track.title
+            cardArtist.text = track.artist.ifBlank { "Unknown artist" }
+
+            if (track.thumbnailUrl.isNotBlank()) {
+                art.load(track.thumbnailUrl) {
+                    placeholder(R.drawable.bg_recent_card); error(R.drawable.bg_recent_card); crossfade(true)
+                }
+            }
+
+            card.setOnClickListener { playTrack(track) }
+            card.setOnLongClickListener { showTrackOptionsMenu(track); true }
+            row.addView(card)
+        }
+
+        homeDiscoverContainer.addView(section)
     }
 
     private fun addRecentCard(track: MusicTrack) {
@@ -700,6 +771,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         card.setOnClickListener { playTrack(track) }
+        card.setOnLongClickListener { showTrackOptionsMenu(track); true }
         homeRecentContainer.addView(card)
     }
 
@@ -728,7 +800,7 @@ class MainActivity : AppCompatActivity() {
             }
 
             searchStatus.visibility = View.GONE
-            results.forEach { track -> addTrackRow(resultsContainer, track, showHeart = true, showDownload = true) }
+            results.forEach { track -> addTrackRow(resultsContainer, track) }
         }
     }
 
@@ -736,20 +808,15 @@ class MainActivity : AppCompatActivity() {
     private fun addTrackRow(
         container: LinearLayout,
         track: MusicTrack,
-        showHeart: Boolean = false,
-        showDownload: Boolean = false,
-        showRemove: Boolean = false,
-        onRemove: (() -> Unit)? = null
+        onRemove: (() -> Unit)? = null,
+        removeLabel: String = "Remove"
     ) {
         val item = LayoutInflater.from(this).inflate(R.layout.item_search_result, container, false)
 
         val art = item.findViewById<ImageView>(R.id.item_art)
         val title = item.findViewById<TextView>(R.id.item_title)
         val artist = item.findViewById<TextView>(R.id.item_artist)
-        val play = item.findViewById<ImageButton>(R.id.item_play)
-        val heart = item.findViewById<ImageButton>(R.id.item_heart)
-        val download = item.findViewById<ImageButton>(R.id.item_download)
-        val remove = item.findViewById<ImageButton>(R.id.item_remove)
+        val more = item.findViewById<ImageButton>(R.id.item_more)
 
         title.text = track.title
         artist.text = track.artist.ifBlank { "Unknown artist" }
@@ -761,43 +828,69 @@ class MainActivity : AppCompatActivity() {
         }
 
         val onPlay = View.OnClickListener { playTrack(track) }
-        play.setOnClickListener(onPlay)
         item.setOnClickListener(onPlay)
-
-        if (showHeart) {
-            heart.visibility = View.VISIBLE
-            fun refreshHeart() {
-                val liked = FavoritesStore.isLiked(track.videoId)
-                heart.setImageResource(if (liked) R.drawable.ic_heart_filled else R.drawable.ic_heart_outline)
-                heart.setColorFilter(if (liked) colorOf(R.color.accent) else colorOf(R.color.text_muted))
-            }
-            refreshHeart()
-            heart.setOnClickListener { FavoritesStore.toggle(track); refreshHeart() }
-        }
-
-        if (showDownload) {
-            download.visibility = View.VISIBLE
-            fun refreshDownload() {
-                val done = DownloadStore.isDownloaded(track.videoId)
-                download.setImageResource(if (done) R.drawable.ic_download_done else R.drawable.ic_download)
-                download.setColorFilter(if (done) colorOf(R.color.accent) else colorOf(R.color.text_muted))
-            }
-            refreshDownload()
-            download.setOnClickListener {
-                if (!DownloadStore.isDownloaded(track.videoId)) {
-                    downloadTrack(track) { refreshDownload() }
-                } else {
-                    Toast.makeText(this, "Already downloaded", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-
-        if (showRemove) {
-            remove.visibility = View.VISIBLE
-            remove.setOnClickListener { onRemove?.invoke() }
-        }
+        item.setOnLongClickListener { showTrackOptionsMenu(track, onRemove, removeLabel); true }
+        more.setOnClickListener { showTrackOptionsMenu(track, onRemove, removeLabel) }
 
         container.addView(item)
+    }
+
+    /**
+     * Single overflow menu used everywhere instead of a row full of icon
+     * buttons: like, add to playlist, add to queue, download, and an
+     * optional context-specific remove action (e.g. "Remove from playlist").
+     */
+    private fun showTrackOptionsMenu(
+        track: MusicTrack,
+        onRemove: (() -> Unit)? = null,
+        removeLabel: String = "Remove"
+    ) {
+        val liked = FavoritesStore.isLiked(track.videoId)
+        val downloaded = DownloadStore.isDownloaded(track.videoId)
+
+        val labels = mutableListOf<String>()
+        val actions = mutableListOf<() -> Unit>()
+
+        labels.add(if (liked) "Remove from Liked Songs" else "Add to Liked Songs")
+        actions.add { FavoritesStore.toggle(track) }
+
+        labels.add("Add to playlist")
+        actions.add { showAddToPlaylistDialog(track) }
+
+        labels.add("Add to queue")
+        actions.add { addTrackToQueue(track) }
+
+        if (downloaded) {
+            labels.add("Downloaded \u2713")
+            actions.add { Toast.makeText(this, "Already downloaded", Toast.LENGTH_SHORT).show() }
+        } else {
+            labels.add("Download")
+            actions.add { downloadTrack(track) {} }
+        }
+
+        if (onRemove != null) {
+            labels.add(removeLabel)
+            actions.add(onRemove)
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(track.title)
+            .setItems(labels.toTypedArray()) { _, which -> actions[which].invoke() }
+            .show()
+    }
+
+    private fun addTrackToQueue(track: MusicTrack) {
+        val controller = mediaController ?: return
+        screenScope.launch {
+            val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(track.videoId) }
+            if (streamUrl.isNullOrBlank()) {
+                Toast.makeText(this@MainActivity, "Couldn't add to queue", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            controller.addMediaItem(buildMediaItem(track, streamUrl))
+            refreshQueueList()
+            Toast.makeText(this@MainActivity, "Added to queue", Toast.LENGTH_SHORT).show()
+        }
     }
 
     // ---------------------------------------------------------------
@@ -1017,11 +1110,16 @@ class MainActivity : AppCompatActivity() {
         listEmpty.visibility = if (tracks.isEmpty()) View.VISIBLE else View.GONE
 
         tracks.forEach { track ->
+            val removeLabel = when (mode) {
+                ListMode.FAVORITES -> "Remove from Liked Songs"
+                ListMode.DOWNLOADS -> "Remove download"
+                ListMode.PLAYLIST -> "Remove from playlist"
+                ListMode.HISTORY -> "Remove from history"
+                ListMode.QUEUE -> "Remove"
+            }
             addTrackRow(
                 listContainer, track,
-                showHeart = mode != ListMode.FAVORITES,
-                showDownload = mode != ListMode.DOWNLOADS,
-                showRemove = true,
+                removeLabel = removeLabel,
                 onRemove = {
                     when (mode) {
                         ListMode.FAVORITES -> FavoritesStore.remove(track.videoId)
@@ -1030,9 +1128,11 @@ class MainActivity : AppCompatActivity() {
                             DownloadStore.remove(track.videoId)
                         }
                         ListMode.PLAYLIST -> currentPlaylistId?.let { PlaylistStore.removeTrack(it, track.videoId) }
+                        ListMode.HISTORY -> PlayHistoryStore.remove(track.videoId)
                         else -> {}
                     }
                     renderCurrentList()
+                    if (currentTab == Tab.LIBRARY) loadLibraryContent()
                 }
             )
         }

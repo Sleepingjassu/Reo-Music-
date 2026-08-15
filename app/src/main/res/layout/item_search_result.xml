@@ -6,15 +6,15 @@
     android:orientation="horizontal"
     android:gravity="center_vertical"
     android:background="@drawable/bg_card_rounded_pressed"
-    android:padding="10dp"
-    android:layout_marginBottom="8dp"
+    android:padding="8dp"
+    android:layout_marginBottom="4dp"
     android:clickable="true"
     android:focusable="true">
 
     <ImageView
         android:id="@+id/item_art"
-        android:layout_width="50dp"
-        android:layout_height="50dp"
+        android:layout_width="54dp"
+        android:layout_height="54dp"
         android:background="@drawable/bg_thumb_small"
         android:scaleType="centerCrop"
         android:contentDescription="@null" />
@@ -51,48 +51,13 @@
     </LinearLayout>
 
     <ImageButton
-        android:id="@+id/item_heart"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
+        android:id="@+id/item_more"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
         android:background="@drawable/ripple_circle_ghost"
-        android:src="@drawable/ic_heart_outline"
+        android:src="@drawable/ic_more_vert"
         android:tint="@color/text_muted"
-        android:padding="8dp"
-        android:visibility="gone"
-        android:contentDescription="Like" />
-
-    <ImageButton
-        android:id="@+id/item_download"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
-        android:layout_marginStart="2dp"
-        android:background="@drawable/ripple_circle_ghost"
-        android:src="@drawable/ic_download"
-        android:tint="@color/text_muted"
-        android:padding="8dp"
-        android:visibility="gone"
-        android:contentDescription="Download" />
-
-    <ImageButton
-        android:id="@+id/item_remove"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
-        android:layout_marginStart="2dp"
-        android:background="@drawable/ripple_circle_ghost"
-        android:src="@drawable/ic_close"
-        android:tint="@color/text_muted"
-        android:padding="8dp"
-        android:visibility="gone"
-        android:contentDescription="Remove" />
-
-    <ImageButton
-        android:id="@+id/item_play"
-        android:layout_width="38dp"
-        android:layout_height="38dp"
-        android:layout_marginStart="2dp"
-        android:background="@drawable/ripple_circle_ghost"
-        android:src="@drawable/ic_play"
-        android:padding="9dp"
-        android:contentDescription="Play" />
+        android:padding="10dp"
+        android:contentDescription="More options" />
 
 </LinearLayout>

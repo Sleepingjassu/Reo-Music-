@@ -31,6 +31,7 @@
                 android:fontFamily="sans-serif-medium" />
 
             <TextView
+                android:id="@+id/home_greeting"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
@@ -79,13 +80,16 @@
 
         </LinearLayout>
 
-        <!-- Quick picks / suggestions -->
+        <!-- Quick picks / "Because you played X" -->
         <LinearLayout
+            android:id="@+id/home_picks_section"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingStart="20dp"
-            android:paddingEnd="20dp">
+            android:paddingEnd="20dp"
+            android:layout_marginBottom="10dp"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/home_picks_header"
@@ -103,35 +107,44 @@
                 android:layout_height="wrap_content"
                 android:orientation="vertical" />
 
-            <LinearLayout
-                android:id="@+id/home_empty_state"
+        </LinearLayout>
+
+        <!-- Always-on discovery rows (Trending, moods, genres) -->
+        <LinearLayout
+            android:id="@+id/home_discover_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <LinearLayout
+            android:id="@+id/home_empty_state"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:gravity="center_horizontal"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingTop="40dp"
+            android:paddingBottom="20dp"
+            android:visibility="gone">
+
+            <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:gravity="center_horizontal"
-                android:paddingTop="40dp"
-                android:paddingBottom="20dp"
-                android:visibility="gone">
+                android:text="Couldn't load recommendations"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp"
+                android:fontFamily="sans-serif-medium"
+                android:gravity="center" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Nothing here yet"
-                    android:textColor="@color/text_primary"
-                    android:textSize="16sp"
-                    android:fontFamily="sans-serif-medium"
-                    android:gravity="center" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="Search for a song to start listening — REO will learn what to suggest next"
-                    android:textColor="@color/text_muted"
-                    android:textSize="13sp"
-                    android:gravity="center" />
-
-            </LinearLayout>
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Check your connection, or search for a song to start listening"
+                android:textColor="@color/text_muted"
+                android:textSize="13sp"
+                android:gravity="center" />
 
         </LinearLayout>
 
