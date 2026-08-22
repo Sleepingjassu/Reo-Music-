@@ -18,6 +18,8 @@ object AppSettings {
     private const val KEY_KEEP_SCREEN_ON = "keep_screen_on_enabled"
     private const val KEY_THEME_MODE = "theme_mode"
     private const val KEY_SMART_SHUFFLE = "smart_shuffle_enabled"
+    private const val KEY_SKIP_SILENCE = "skip_silence_enabled"
+    private const val KEY_CROSSFADE = "crossfade_enabled"
     private const val KEY_EQ_ENABLED = "eq_enabled"
     private const val KEY_EQ_PRESET = "eq_preset"
     private const val KEY_EQ_BANDS = "eq_bands" // comma separated millibels
@@ -28,6 +30,8 @@ object AppSettings {
     @Volatile var keepScreenOnEnabled: Boolean = true; private set
     @Volatile var themeMode: ThemeMode = ThemeMode.SYSTEM; private set
     @Volatile var smartShuffleEnabled: Boolean = false; private set
+    @Volatile var skipSilenceEnabled: Boolean = false; private set
+    @Volatile var crossfadeEnabled: Boolean = false; private set
     @Volatile var equalizerEnabled: Boolean = false; private set
     @Volatile var equalizerPreset: String = "Normal"; private set
     @Volatile var equalizerBands: IntArray = IntArray(5); private set
@@ -45,6 +49,8 @@ object AppSettings {
         dataSaverEnabled = store.getBoolean(KEY_DATA_SAVER, false)
         keepScreenOnEnabled = store.getBoolean(KEY_KEEP_SCREEN_ON, true)
         smartShuffleEnabled = store.getBoolean(KEY_SMART_SHUFFLE, false)
+        skipSilenceEnabled = store.getBoolean(KEY_SKIP_SILENCE, false)
+        crossfadeEnabled = store.getBoolean(KEY_CROSSFADE, false)
         equalizerEnabled = store.getBoolean(KEY_EQ_ENABLED, false)
         equalizerPreset = store.getString(KEY_EQ_PRESET, "Normal") ?: "Normal"
 
@@ -79,6 +85,16 @@ object AppSettings {
     fun setThemeMode(mode: ThemeMode) {
         themeMode = mode
         prefs?.edit()?.putString(KEY_THEME_MODE, mode.name)?.apply()
+    }
+
+    fun setSkipSilenceEnabled(enabled: Boolean) {
+        skipSilenceEnabled = enabled
+        prefs?.edit()?.putBoolean(KEY_SKIP_SILENCE, enabled)?.apply()
+    }
+
+    fun setCrossfadeEnabled(enabled: Boolean) {
+        crossfadeEnabled = enabled
+        prefs?.edit()?.putBoolean(KEY_CROSSFADE, enabled)?.apply()
     }
 
     fun setSmartShuffleEnabled(enabled: Boolean) {

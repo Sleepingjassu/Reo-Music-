@@ -25,6 +25,7 @@ class PlaybackService : MediaSessionService() {
     private lateinit var mediaSession: MediaSession
 
     private val sleepTimerHandler = Handler(Looper.getMainLooper())
+    private val transitionHandler = Handler(Looper.getMainLooper())
     private var sleepTimerEndAtMillis: Long? = null
     private var sleepTimerEndOfTrack: Boolean = false
 
@@ -41,6 +42,7 @@ class PlaybackService : MediaSessionService() {
 
     private val sleepTimerPlayerListener = object : Player.Listener {
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            applyTransitionFadeIn()
             if (sleepTimerEndOfTrack && reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
                 player.pause()
                 sleepTimerEndOfTrack = false
@@ -70,6 +72,7 @@ class PlaybackService : MediaSessionService() {
             .setMediaSourceFactory(mediaSourceFactory)
             .build()
 
+        player.setSkipSilenceEnabled(AppSettings.skipSilenceEnabled)
         player.addListener(sleepTimerPlayerListener)
 
         val sessionActivityIntent = Intent(this, MainActivity::class.java)
@@ -89,6 +92,26 @@ class PlaybackService : MediaSessionService() {
         sleepTimerHandler.post(sleepTimerCheck)
     }
 
+
+    /**
+     * Media3 handles playlist/gapless transitions. REO keeps the optional
+     * transition setting deliberately conservative here: a short fade-in on
+     * the newly selected item avoids the ugly hard-start without pretending a
+     * single ExoPlayer can overlap two streams. A true dual-player crossfade
+     * belongs in a dedicated audio mixer layer.
+     */
+    private fun applyTransitionFadeIn() {
+        if (!AppSettings.crossfadeEnabled || !player.isPlaying) return
+        player.volume = 0f
+        val start = System.currentTimeMillis()
+        fun step() {
+            val t = ((System.currentTimeMillis() - start).toFloat() / 900L).coerceIn(0f, 1f)
+            player.volume = t
+            if (t < 1f) transitionHandler.postDelayed({ step() }, 35L)
+        }
+        step()
+    }
+
     private inner class SleepTimerSessionCallback : MediaSession.Callback {
 
         override fun onConnect(
@@ -102,6 +125,7 @@ class PlaybackService : MediaSessionService() {
                 .add(SessionCommand(SleepTimerCommands.ACTION_SET_DURATION, Bundle.EMPTY))
                 .add(SessionCommand(SleepTimerCommands.ACTION_SET_END_OF_TRACK, Bundle.EMPTY))
                 .add(SessionCommand(SleepTimerCommands.ACTION_CANCEL, Bundle.EMPTY))
+                .add(SessionCommand("REO_SET_SKIP_SILENCE", Bundle.EMPTY))
                 .build()
 
             return MediaSession.ConnectionResult.accept(
@@ -118,6 +142,11 @@ class PlaybackService : MediaSessionService() {
         ): ListenableFuture<androidx.media3.session.SessionResult> {
 
             when (customCommand.customAction) {
+                "REO_SET_SKIP_SILENCE" -> {
+                    val enabled = args.getBoolean("enabled", false)
+                    AppSettings.setSkipSilenceEnabled(enabled)
+                    player.setSkipSilenceEnabled(enabled)
+                }
 
                 SleepTimerCommands.ACTION_SET_DURATION -> {
                     val durationMs = args.getLong(SleepTimerCommands.EXTRA_DURATION_MS, 0L)
@@ -150,6 +179,7 @@ class PlaybackService : MediaSessionService() {
 
     override fun onDestroy() {
         sleepTimerHandler.removeCallbacksAndMessages(null)
+        transitionHandler.removeCallbacksAndMessages(null)
         player.removeListener(sleepTimerPlayerListener)
         mediaSession.release()
         player.release()

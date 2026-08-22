@@ -252,6 +252,86 @@
 
     </FrameLayout>
 
+    <FrameLayout
+        android:id="@+id/lyrics_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/bg_black"
+        android:visibility="gone"
+        android:elevation="28dp"
+        android:fitsSystemWindows="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="64dp"
+                android:gravity="center_vertical"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp">
+                <ImageButton
+                    android:id="@+id/lyrics_back"
+                    android:layout_width="44dp"
+                    android:layout_height="44dp"
+                    android:background="@drawable/ripple_circle_ghost"
+                    android:src="@drawable/ic_arrow_back"
+                    android:tint="@color/text_primary"
+                    android:padding="10dp"
+                    android:contentDescription="Close lyrics" />
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="8dp"
+                    android:orientation="vertical">
+                    <TextView
+                        android:id="@+id/lyrics_title"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Lyrics"
+                        android:textColor="@color/text_primary"
+                        android:textSize="18sp"
+                        android:fontFamily="sans-serif-medium"
+                        android:maxLines="1"
+                        android:ellipsize="end" />
+                    <TextView
+                        android:id="@+id/lyrics_artist"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/text_muted"
+                        android:textSize="12sp"
+                        android:maxLines="1"
+                        android:ellipsize="end" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <ScrollView
+                android:id="@+id/lyrics_scroll"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:clipToPadding="false"
+                android:paddingStart="24dp"
+                android:paddingEnd="24dp"
+                android:paddingTop="34dp"
+                android:paddingBottom="120dp"
+                android:scrollbars="none">
+                <TextView
+                    android:id="@+id/lyrics_text"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Loading lyrics…"
+                    android:textColor="@color/text_muted"
+                    android:textSize="26sp"
+                    android:fontFamily="sans-serif-medium"
+                    android:lineSpacingExtra="10dp" />
+            </ScrollView>
+        </LinearLayout>
+    </FrameLayout>
+
     <!-- Generic list overlay: Queue / Favorites / History / Downloads / Playlist detail -->
     <FrameLayout
         android:id="@+id/list_overlay"

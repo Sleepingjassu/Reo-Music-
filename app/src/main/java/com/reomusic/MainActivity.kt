@@ -21,6 +21,10 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
+import com.google.android.material.color.DynamicColors
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -100,6 +104,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var npHeartBtn: ImageButton
     private lateinit var npSleepTimerBtn: ImageButton
     private lateinit var npEqualizerBtn: ImageButton
+    private lateinit var npLyricsBtn: ImageButton
+
+    private lateinit var lyricsOverlay: View
+    private lateinit var lyricsBack: ImageButton
+    private lateinit var lyricsTitle: TextView
+    private lateinit var lyricsArtist: TextView
+    private lateinit var lyricsText: TextView
+    private lateinit var lyricsScroll: android.widget.ScrollView
     private lateinit var npQueueHeader: View
     private lateinit var npQueueContainer: LinearLayout
     private lateinit var npQueueEmpty: TextView
@@ -163,6 +175,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchDataSaver: Switch
     private lateinit var switchKeepScreenOn: Switch
     private lateinit var switchSmartShuffle: Switch
+    private lateinit var switchSkipSilence: Switch
+    private lateinit var switchCrossfade: Switch
     private lateinit var themeOptionSystem: TextView
     private lateinit var themeOptionLight: TextView
     private lateinit var themeOptionDark: TextView
@@ -185,6 +199,9 @@ class MainActivity : AppCompatActivity() {
     private var queueBuildJob: Job? = null
     private var homeLoadJob: Job? = null
     private var downloadJob: Job? = null
+    private var lyricsJob: Job? = null
+    private var lyricsResult: LyricsResult? = null
+    private val lyricsHandler = Handler(Looper.getMainLooper())
     private var pendingTrack: MusicTrack? = null
 
     private val uiHandler = Handler(Looper.getMainLooper())
@@ -269,6 +286,7 @@ class MainActivity : AppCompatActivity() {
         applyThemeMode(AppSettings.themeMode)
 
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= 31) DynamicColors.applyToActivityIfAvailable(this)
 
         PlayHistoryStore.init(this)
         PlaybackSignalStore.init(this)
@@ -280,6 +298,9 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         bindViews()
+        (screenHome as? android.widget.ScrollView)?.isVerticalScrollBarEnabled = false
+        (screenSearch as? android.widget.ScrollView)?.isVerticalScrollBarEnabled = false
+        (screenLibrary as? android.widget.ScrollView)?.isVerticalScrollBarEnabled = false
         wireBottomNav()
         wireNowPlaying()
         wireSearchScreen()
@@ -366,6 +387,14 @@ class MainActivity : AppCompatActivity() {
         npHeartBtn = findViewById(R.id.np_heart_btn)
         npSleepTimerBtn = findViewById(R.id.np_sleep_timer_btn)
         npEqualizerBtn = findViewById(R.id.np_equalizer_btn)
+        npLyricsBtn = findViewById(R.id.np_lyrics_btn)
+
+        lyricsOverlay = findViewById(R.id.lyrics_overlay)
+        lyricsBack = findViewById(R.id.lyrics_back)
+        lyricsTitle = findViewById(R.id.lyrics_title)
+        lyricsArtist = findViewById(R.id.lyrics_artist)
+        lyricsText = findViewById(R.id.lyrics_text)
+        lyricsScroll = findViewById(R.id.lyrics_scroll)
         npQueueHeader = findViewById(R.id.np_queue_header)
         npQueueContainer = findViewById(R.id.np_queue_container)
         npQueueEmpty = findViewById(R.id.np_queue_empty)
@@ -428,6 +457,8 @@ class MainActivity : AppCompatActivity() {
         switchDataSaver = findViewById(R.id.switch_data_saver)
         switchKeepScreenOn = findViewById(R.id.switch_keep_screen_on)
         switchSmartShuffle = findViewById(R.id.switch_smart_shuffle)
+        switchSkipSilence = findViewById(R.id.switch_skip_silence)
+        switchCrossfade = findViewById(R.id.switch_crossfade)
         themeOptionSystem = findViewById(R.id.theme_option_system)
         themeOptionLight = findViewById(R.id.theme_option_light)
         themeOptionDark = findViewById(R.id.theme_option_dark)
@@ -508,6 +539,8 @@ class MainActivity : AppCompatActivity() {
         npSleepTimerBtn.setOnClickListener { showSleepTimerDialog() }
 
         npEqualizerBtn.setOnClickListener { openEqualizer() }
+        npLyricsBtn.setOnClickListener { openLyrics() }
+        lyricsBack.setOnClickListener { closeLyrics() }
 
         npQueueHeader.setOnClickListener { openListScreen(ListMode.QUEUE) }
 
@@ -620,6 +653,7 @@ class MainActivity : AppCompatActivity() {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         when {
+            lyricsOverlay.visibility == View.VISIBLE -> closeLyrics()
             equalizerOverlay.visibility == View.VISIBLE -> closeEqualizer()
             listOverlay.visibility == View.VISIBLE -> closeListScreen()
             isNowPlayingOpen -> closeNowPlaying()
@@ -708,7 +742,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             homeRecentSection.visibility = View.VISIBLE
             homePicksSection.visibility = View.VISIBLE
-            homePicksHeader.text = "Because you played \u201c${recent.first().title}\u201d"
+            homePicksHeader.text = "Made for you"
             recent.take(10).forEach { track -> addRecentCard(track) }
         }
 
@@ -719,7 +753,7 @@ class MainActivity : AppCompatActivity() {
                 val resolution = withContext(Dispatchers.IO) { musicProvider.resolveTrack(seedId) }
                 val ranked = PlaybackSignalStore.rankByAffinity(seedId, resolution?.relatedTracks.orEmpty())
                 ranked.take(10).forEach { track ->
-                    addTrackRow(homePicksContainer, track)
+                    addHomePickCard(homePicksContainer, track)
                 }
             }
 
@@ -760,6 +794,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun addHomePickCard(container: LinearLayout, track: MusicTrack) {
+        val card = LayoutInflater.from(this).inflate(R.layout.item_home_pick, container, false)
+        val art = card.findViewById<ImageView>(R.id.pick_art)
+        val title = card.findViewById<TextView>(R.id.pick_title)
+        val artist = card.findViewById<TextView>(R.id.pick_artist)
+        val more = card.findViewById<ImageButton>(R.id.pick_more)
+        title.text = track.title
+        artist.text = track.artist.ifBlank { "Unknown artist" }
+        loadArtwork(art, track)
+        card.setOnClickListener { playTrack(track) }
+        card.setOnLongClickListener { showTrackOptionsMenu(track); true }
+        more.setOnClickListener { showTrackOptionsMenu(track) }
+        container.addView(card)
+    }
+
     private fun addDiscoverSection(title: String, tracks: List<MusicTrack>) {
         val section = LayoutInflater.from(this).inflate(R.layout.item_home_section, homeDiscoverContainer, false)
         section.findViewById<TextView>(R.id.section_title).text = title
@@ -774,11 +823,7 @@ class MainActivity : AppCompatActivity() {
             cardTitle.text = track.title
             cardArtist.text = track.artist.ifBlank { "Unknown artist" }
 
-            if (track.thumbnailUrl.isNotBlank()) {
-                art.load(track.thumbnailUrl) {
-                    placeholder(R.drawable.bg_recent_card); error(R.drawable.bg_recent_card); crossfade(true)
-                }
-            }
+            loadArtwork(art, track)
 
             card.setOnClickListener { playTrack(track) }
             card.setOnLongClickListener { showTrackOptionsMenu(track); true }
@@ -797,15 +842,29 @@ class MainActivity : AppCompatActivity() {
         title.text = track.title
         artist.text = track.artist.ifBlank { "Unknown artist" }
 
-        if (track.thumbnailUrl.isNotBlank()) {
-            art.load(track.thumbnailUrl) {
-                placeholder(R.drawable.bg_recent_card); error(R.drawable.bg_recent_card); crossfade(true)
-            }
-        }
+        loadArtwork(art, track)
 
         card.setOnClickListener { playTrack(track) }
         card.setOnLongClickListener { showTrackOptionsMenu(track); true }
         homeRecentContainer.addView(card)
+    }
+
+    private fun loadArtwork(view: ImageView, track: MusicTrack) {
+        val fallback = if (track.videoId.isNotBlank()) "https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg" else ""
+        val url = track.thumbnailUrl.ifBlank { fallback }
+        view.setImageResource(R.drawable.bg_thumb_small)
+        if (url.isNotBlank()) {
+            view.load(url) {
+                placeholder(R.drawable.bg_thumb_small)
+                error(R.drawable.bg_thumb_small)
+                crossfade(180)
+                listener(onError = { _, _ ->
+                    if (url != fallback && fallback.isNotBlank()) {
+                        view.load(fallback) { placeholder(R.drawable.bg_thumb_small); error(R.drawable.bg_thumb_small) }
+                    }
+                })
+            }
+        }
     }
 
     // ---------------------------------------------------------------
@@ -854,11 +913,7 @@ class MainActivity : AppCompatActivity() {
         title.text = track.title
         artist.text = track.artist.ifBlank { "Unknown artist" }
 
-        if (track.thumbnailUrl.isNotBlank()) {
-            art.load(track.thumbnailUrl) {
-                placeholder(R.drawable.bg_thumb_small); error(R.drawable.bg_thumb_small); crossfade(true)
-            }
-        }
+        loadArtwork(art, track)
 
         val onPlay = View.OnClickListener { playTrack(track) }
         item.setOnClickListener(onPlay)
@@ -1484,7 +1539,7 @@ class MainActivity : AppCompatActivity() {
                     .setTitle(track.title)
                     .setArtist(track.artist)
                     .setAlbumTitle(track.album)
-                    .setArtworkUri(if (track.thumbnailUrl.isNotBlank()) Uri.parse(track.thumbnailUrl) else null)
+                    .setArtworkUri(Uri.parse(track.thumbnailUrl.ifBlank { "https://i.ytimg.com/vi/${track.videoId}/hqdefault.jpg" }))
                     .build()
             )
             .build()
@@ -1607,13 +1662,28 @@ class MainActivity : AppCompatActivity() {
     // Settings
     // ---------------------------------------------------------------
 
+    private fun sendPlaybackSettingUpdate() {
+        mediaController?.let { controller ->
+            val command = SessionCommand("REO_SET_SKIP_SILENCE", android.os.Bundle.EMPTY)
+            val args = android.os.Bundle().apply { putBoolean("enabled", AppSettings.skipSilenceEnabled) }
+            controller.sendCustomCommand(command, args)
+        }
+    }
+
     private fun wireSettingsScreen() {
 
         switchDataSaver.isChecked = AppSettings.dataSaverEnabled
         switchKeepScreenOn.isChecked = AppSettings.keepScreenOnEnabled
         switchSmartShuffle.isChecked = AppSettings.smartShuffleEnabled
+        switchSkipSilence.isChecked = AppSettings.skipSilenceEnabled
+        switchCrossfade.isChecked = AppSettings.crossfadeEnabled
 
         switchDataSaver.setOnCheckedChangeListener { _, isChecked -> AppSettings.setDataSaverEnabled(isChecked) }
+        switchSkipSilence.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setSkipSilenceEnabled(isChecked)
+            sendPlaybackSettingUpdate()
+        }
+        switchCrossfade.setOnCheckedChangeListener { _, isChecked -> AppSettings.setCrossfadeEnabled(isChecked) }
         switchKeepScreenOn.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setKeepScreenOnEnabled(isChecked); applyKeepScreenOn()
         }
@@ -1733,16 +1803,18 @@ class MainActivity : AppCompatActivity() {
         miniArtist.text = artist
 
         val artworkUri = item.mediaMetadata.artworkUri
-        if (artworkUri != null) {
-            npAlbumArt.load(artworkUri) {
-                placeholder(R.drawable.bg_album_art_placeholder); error(R.drawable.bg_album_art_placeholder); crossfade(true)
+        val artwork = artworkUri?.toString().orEmpty().ifBlank {
+            if (item.mediaId.isNotBlank()) "https://i.ytimg.com/vi/${item.mediaId}/hqdefault.jpg" else ""
+        }
+        npAlbumArt.setImageResource(R.drawable.bg_album_art_placeholder)
+        miniArt.setImageResource(R.drawable.bg_thumb_small)
+        if (artwork.isNotBlank()) {
+            npAlbumArt.load(artwork) {
+                placeholder(R.drawable.bg_album_art_placeholder); error(R.drawable.bg_album_art_placeholder); crossfade(180)
             }
-            miniArt.load(artworkUri) {
-                placeholder(R.drawable.bg_thumb_small); error(R.drawable.bg_thumb_small); crossfade(true)
+            miniArt.load(artwork) {
+                placeholder(R.drawable.bg_thumb_small); error(R.drawable.bg_thumb_small); crossfade(180)
             }
-        } else {
-            npAlbumArt.setImageResource(R.drawable.bg_album_art_placeholder)
-            miniArt.setImageResource(R.drawable.bg_thumb_small)
         }
 
         npTimeTotal.text = formatTime(controller.duration.coerceAtLeast(0L))
@@ -1787,6 +1859,90 @@ class MainActivity : AppCompatActivity() {
         return String.format("%d:%02d", minutes, seconds)
     }
 
+    private fun openLyrics() {
+        val track = currentPlayingTrack() ?: return
+        lyricsOverlay.visibility = View.VISIBLE
+        lyricsTitle.text = track.title
+        lyricsArtist.text = track.artist.ifBlank { "Unknown artist" }
+        lyricsText.text = "Finding lyrics…"
+        lyricsText.setTextColor(colorOf(R.color.text_muted))
+        lyricsScroll.scrollTo(0, 0)
+        lyricsJob?.cancel()
+        lyricsJob = screenScope.launch {
+            val result = withContext(Dispatchers.IO) { LyricsRepository.getLyrics(track.title, track.artist) }
+            lyricsResult = result
+            if (result == null) {
+                lyricsText.text = "Lyrics aren't available for this track."
+                return@launch
+            }
+            renderLyrics(mediaController?.currentPosition ?: 0L)
+            lyricsHandler.removeCallbacks(lyricsTicker)
+            lyricsHandler.post(lyricsTicker)
+        }
+    }
+
+    private fun closeLyrics() {
+        lyricsHandler.removeCallbacks(lyricsTicker)
+        lyricsJob?.cancel()
+        lyricsOverlay.visibility = View.GONE
+    }
+
+    private val lyricsTicker = object : Runnable {
+        override fun run() {
+            if (lyricsOverlay.visibility == View.VISIBLE) {
+                renderLyrics(mediaController?.currentPosition ?: 0L)
+                lyricsHandler.postDelayed(this, 180L)
+            }
+        }
+    }
+
+    private fun renderLyrics(positionMs: Long) {
+        val result = lyricsResult ?: return
+        if (result.lines.isEmpty()) {
+            lyricsText.text = result.plainText
+            return
+        }
+        val builder = SpannableStringBuilder()
+        val accent = colorOf(R.color.accent)
+        val muted = colorOf(R.color.text_muted)
+        val primary = colorOf(R.color.text_primary)
+        var activeLineIndex = -1
+        result.lines.forEachIndexed { index, line ->
+            if (positionMs >= line.startMs && positionMs < line.endMs) activeLineIndex = index
+            val start = builder.length
+            builder.append(line.text)
+            builder.append("\n\n")
+            val lineEnd = start + line.text.length
+            builder.setSpan(ForegroundColorSpan(if (index == activeLineIndex) accent else muted), start, lineEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            if (index == activeLineIndex) {
+                val words = line.text.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+                if (words.isNotEmpty()) {
+                    val elapsed = (positionMs - line.startMs).coerceAtLeast(0L)
+                    val lineDuration = (line.endMs - line.startMs).coerceAtLeast(500L)
+                    val wordIndex = ((elapsed.toDouble() / lineDuration.toDouble()) * words.size).toInt().coerceIn(0, words.lastIndex)
+                    var cursor = start
+                    words.forEachIndexed { wi, word ->
+                        val idx = builder.indexOf(word, cursor)
+                        if (idx >= 0) {
+                            val end = idx + word.length
+                            builder.setSpan(ForegroundColorSpan(if (wi <= wordIndex) primary else accent), idx, end, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                            cursor = end
+                        }
+                    }
+                }
+            }
+        }
+        lyricsText.text = builder
+        if (activeLineIndex >= 0) {
+            val layout = lyricsText.layout
+            if (layout != null) {
+                val lineStart = layout.getLineTop(activeLineIndex.coerceAtMost(layout.lineCount - 1))
+                val target = (lineStart - lyricsScroll.height / 3).coerceAtLeast(0)
+                lyricsScroll.smoothScrollTo(0, target)
+            }
+        }
+    }
+
     // ---------------------------------------------------------------
     // Lifecycle
     // ---------------------------------------------------------------
@@ -1804,6 +1960,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         uiHandler.removeCallbacks(tickRunnable)
+        lyricsHandler.removeCallbacksAndMessages(null)
         super.onPause()
     }
 

@@ -4,7 +4,8 @@
     android:layout_height="match_parent"
     android:background="@color/bg_black"
     android:clipToPadding="false"
-    android:scrollbars="none">
+    android:scrollbars="none"
+    android:scrollbarSize="0dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -168,6 +169,46 @@
                 android:thumbTint="@color/accent"
                 android:trackTint="@color/surface_3" />
 
+        </LinearLayout>
+
+        <!-- Skip silence -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_card_rounded"
+            android:padding="16dp"
+            android:layout_marginBottom="10dp">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Skip silence" android:textColor="@color/text_primary" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Remove silent gaps between phrases when supported" android:textColor="@color/text_muted" android:textSize="12sp" />
+            </LinearLayout>
+            <Switch android:id="@+id/switch_skip_silence" android:layout_width="wrap_content" android:layout_height="wrap_content" android:thumbTint="@color/accent" android:trackTint="@color/surface_3" />
+        </LinearLayout>
+
+        <!-- Crossfade -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/bg_card_rounded"
+            android:padding="16dp"
+            android:layout_marginBottom="10dp">
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Smooth transitions" android:textColor="@color/text_primary" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Fade transitions between queued tracks" android:textColor="@color/text_muted" android:textSize="12sp" />
+            </LinearLayout>
+            <Switch android:id="@+id/switch_crossfade" android:layout_width="wrap_content" android:layout_height="wrap_content" android:thumbTint="@color/accent" android:trackTint="@color/surface_3" />
         </LinearLayout>
 
         <!-- Data Saver -->

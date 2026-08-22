@@ -4,7 +4,8 @@
     android:layout_height="match_parent"
     android:background="@color/bg_black"
     android:clipToPadding="false"
-    android:scrollbars="none">
+    android:scrollbars="none"
+    android:scrollbarSize="0dp">
 
     <LinearLayout
         android:layout_width="match_parent"
