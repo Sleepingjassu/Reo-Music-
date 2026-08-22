@@ -196,6 +196,11 @@ class MainActivity : AppCompatActivity() {
     /** videoId -> last resolved stream URL, so Download doesn't need a fresh network call. */
     private val resolvedStreamUrls = mutableMapOf<String, String>()
 
+    // Feeds PlaybackSignalStore: last-known position/duration/track before a transition fires.
+    private var lastKnownPositionMs: Long = 0L
+    private var lastKnownDurationMs: Long = 0L
+    private var lastKnownTrack: MusicTrack? = null
+
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
@@ -222,6 +227,21 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            val newTrack = mediaItem?.let {
+                MusicTrack(
+                    videoId = it.mediaId,
+                    title = it.mediaMetadata.title?.toString() ?: "",
+                    artist = it.mediaMetadata.artist?.toString() ?: "",
+                    album = it.mediaMetadata.albumTitle?.toString() ?: "",
+                    thumbnailUrl = it.mediaMetadata.artworkUri?.toString() ?: ""
+                )
+            }
+            if (newTrack != null) {
+                PlaybackSignalStore.recordTransition(lastKnownTrack, lastKnownPositionMs, lastKnownDurationMs, newTrack)
+                lastKnownTrack = newTrack
+                lastKnownPositionMs = 0L
+                lastKnownDurationMs = 0L
+            }
             refreshNowPlayingMetadata()
             refreshQueueList()
         }
@@ -251,6 +271,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         PlayHistoryStore.init(this)
+        PlaybackSignalStore.init(this)
         FavoritesStore.init(this)
         PlaylistStore.init(this)
         DownloadStore.init(this)
@@ -694,9 +715,21 @@ class MainActivity : AppCompatActivity() {
         homeLoadJob = screenScope.launch {
 
             if (recent.isNotEmpty()) {
-                val resolution = withContext(Dispatchers.IO) { musicProvider.resolveTrack(recent.first().videoId) }
-                resolution?.relatedTracks.orEmpty().take(10).forEach { track ->
+                val seedId = recent.first().videoId
+                val resolution = withContext(Dispatchers.IO) { musicProvider.resolveTrack(seedId) }
+                val ranked = PlaybackSignalStore.rankByAffinity(seedId, resolution?.relatedTracks.orEmpty())
+                ranked.take(10).forEach { track ->
                     addTrackRow(homePicksContainer, track)
+                }
+            }
+
+            // Personalized rows from whichever artists this device actually
+            // finishes listening to most (not just "last played").
+            val topArtists = PlaybackSignalStore.topArtists(2)
+            topArtists.forEach { artist ->
+                val tracks = withContext(Dispatchers.IO) { musicProvider.search(artist) }.take(10)
+                if (tracks.isNotEmpty()) {
+                    addDiscoverSection("More $artist", tracks)
                 }
             }
 
@@ -1737,6 +1770,12 @@ class MainActivity : AppCompatActivity() {
             npProgressBar.progress = ((position * 1000) / duration).toInt()
             npTimeElapsed.text = formatTime(position)
             npTimeTotal.text = formatTime(duration)
+
+            // Track the last-known position/duration of the current item so
+            // PlaybackSignalStore can tell a completed listen from a skip
+            // once the item actually changes (see onMediaItemTransition).
+            lastKnownPositionMs = position
+            lastKnownDurationMs = duration
         }
     }
 
