@@ -53,7 +53,7 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 private enum class ListMode { QUEUE, FAVORITES, HISTORY, DOWNLOADS, PLAYLIST }
 private enum class SortField { DEFAULT, TITLE, ARTIST, DURATION }
 
-private const val MAX_QUEUE_LOOKAHEAD = 12
+private const val MAX_QUEUE_LOOKAHEAD = 20
 private const val SMART_SHUFFLE_MIN_UPCOMING = 3
 
 class MainActivity : AppCompatActivity() {
@@ -124,12 +124,34 @@ class MainActivity : AppCompatActivity() {
     private lateinit var homePicksContainer: LinearLayout
     private lateinit var homeDiscoverContainer: LinearLayout
     private lateinit var homeEmptyState: View
+    private lateinit var homeHero: View
+    private lateinit var homeHeroArt: ImageView
+    private lateinit var homeHeroTitle: TextView
+    private lateinit var homeHeroArtist: TextView
+    private lateinit var homeHeroPlay: View
+    private lateinit var homeSearchShortcut: ImageButton
+    private lateinit var homeSettingsShortcut: ImageButton
+    private lateinit var homeChipMadeForYou: TextView
+    private lateinit var homeChipDiscover: TextView
+    private lateinit var homeChipMoods: TextView
+    private lateinit var homeChipCharts: TextView
 
     // Search screen
     private lateinit var searchInput: EditText
     private lateinit var searchButton: ImageButton
+    private lateinit var searchClearButton: ImageButton
     private lateinit var searchStatus: TextView
     private lateinit var resultsContainer: LinearLayout
+    private lateinit var searchRecentSection: View
+    private lateinit var searchRecentContainer: LinearLayout
+    private lateinit var searchClearHistory: TextView
+    private lateinit var searchFilterAll: TextView
+    private lateinit var searchFilterSongs: TextView
+    private lateinit var searchFilterArtists: TextView
+    private lateinit var searchFilterAlbums: TextView
+    private lateinit var searchFilterPlaylists: TextView
+    private var lastSearchResults: List<MusicTrack> = emptyList()
+    private var searchFilter: String = "all"
 
     // Library screen
     private lateinit var libraryLikedRow: View
@@ -202,6 +224,8 @@ class MainActivity : AppCompatActivity() {
     private var lyricsResult: LyricsResult? = null
     private val lyricsHandler = Handler(Looper.getMainLooper())
     private var pendingTrack: MusicTrack? = null
+    private val searchHistory = mutableListOf<String>()
+    private val searchPrefs by lazy { getSharedPreferences("reo_search_history", MODE_PRIVATE) }
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private var isDraggingProgress = false
@@ -291,6 +315,7 @@ class MainActivity : AppCompatActivity() {
         (screenSearch as? android.widget.ScrollView)?.isVerticalScrollBarEnabled = false
         (screenLibrary as? android.widget.ScrollView)?.isVerticalScrollBarEnabled = false
         wireBottomNav()
+        wireHomeShortcuts()
         wireNowPlaying()
         wireSearchScreen()
         wireLibraryScreen()
@@ -303,6 +328,7 @@ class MainActivity : AppCompatActivity() {
 
         showTab(Tab.HOME)
         loadHomeContent()
+        installTabSwipeGestures()
 
         FavoritesStore.addListener(::onFavoritesChanged)
         PlaylistStore.addListener(::onPlaylistsChanged)
@@ -405,11 +431,31 @@ class MainActivity : AppCompatActivity() {
         homePicksContainer = findViewById(R.id.home_picks_container)
         homeDiscoverContainer = findViewById(R.id.home_discover_container)
         homeEmptyState = findViewById(R.id.home_empty_state)
+        homeHero = findViewById(R.id.home_hero)
+        homeHeroArt = findViewById(R.id.home_hero_art)
+        homeHeroTitle = findViewById(R.id.home_hero_title)
+        homeHeroArtist = findViewById(R.id.home_hero_artist)
+        homeHeroPlay = findViewById(R.id.home_hero_play)
+        homeSearchShortcut = findViewById(R.id.home_search_shortcut)
+        homeSettingsShortcut = findViewById(R.id.home_settings_shortcut)
+        homeChipMadeForYou = findViewById(R.id.home_chip_made_for_you)
+        homeChipDiscover = findViewById(R.id.home_chip_discover)
+        homeChipMoods = findViewById(R.id.home_chip_moods)
+        homeChipCharts = findViewById(R.id.home_chip_charts)
 
         searchInput = findViewById(R.id.search_input)
         searchButton = findViewById(R.id.search_button)
+        searchClearButton = findViewById(R.id.search_clear_button)
         searchStatus = findViewById(R.id.search_status)
         resultsContainer = findViewById(R.id.results_container)
+        searchRecentSection = findViewById(R.id.search_recent_section)
+        searchRecentContainer = findViewById(R.id.search_recent_container)
+        searchClearHistory = findViewById(R.id.search_clear_history)
+        searchFilterAll = findViewById(R.id.search_filter_all)
+        searchFilterSongs = findViewById(R.id.search_filter_songs)
+        searchFilterArtists = findViewById(R.id.search_filter_artists)
+        searchFilterAlbums = findViewById(R.id.search_filter_albums)
+        searchFilterPlaylists = findViewById(R.id.search_filter_playlists)
 
         libraryLikedRow = findViewById(R.id.library_liked_row)
         libraryLikedCount = findViewById(R.id.library_liked_count)
@@ -466,6 +512,20 @@ class MainActivity : AppCompatActivity() {
         tabSettings.setOnClickListener { showTab(Tab.SETTINGS) }
     }
 
+    private fun wireHomeShortcuts() {
+        homeSearchShortcut.setOnClickListener { showTab(Tab.SEARCH); searchInput.requestFocus(); showKeyboard(searchInput) }
+        homeSettingsShortcut.setOnClickListener { showTab(Tab.SETTINGS) }
+        homeHeroPlay.setOnClickListener { PlayHistoryStore.getRecent().firstOrNull()?.let { playTrack(it) } }
+        homeChipMadeForYou.setOnClickListener { loadHomeContent() }
+        homeChipDiscover.setOnClickListener { showTab(Tab.SEARCH); searchInput.setText("trending music"); search("trending music") }
+        homeChipMoods.setOnClickListener { showTab(Tab.SEARCH); searchInput.setText("chill mood music"); search("chill mood music") }
+        homeChipCharts.setOnClickListener { showTab(Tab.SEARCH); searchInput.setText("top songs"); search("top songs") }
+    }
+
+    private fun showKeyboard(view: View) {
+        view.post { val imm = getSystemService(android.view.inputmethod.InputMethodManager::class.java); imm?.showSoftInput(view, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT) }
+    }
+
     private fun showTab(tab: Tab) {
         currentTab = tab
 
@@ -486,8 +546,13 @@ class MainActivity : AppCompatActivity() {
         tabSearchLabel.setTextColor(if (tab == Tab.SEARCH) accent else muted)
         tabLibraryLabel.setTextColor(if (tab == Tab.LIBRARY) accent else muted)
         tabSettingsLabel.setTextColor(if (tab == Tab.SETTINGS) accent else muted)
+        tabHome.background = if (tab == Tab.HOME) ContextCompat.getDrawable(this, R.drawable.bg_nav_selected) else null
+        tabSearch.background = if (tab == Tab.SEARCH) ContextCompat.getDrawable(this, R.drawable.bg_nav_selected) else null
+        tabLibrary.background = if (tab == Tab.LIBRARY) ContextCompat.getDrawable(this, R.drawable.bg_nav_selected) else null
+        tabSettings.background = if (tab == Tab.SETTINGS) ContextCompat.getDrawable(this, R.drawable.bg_nav_selected) else null
 
         if (tab == Tab.HOME) loadHomeContent()
+        if (tab == Tab.SEARCH) renderSearchHistory()
         if (tab == Tab.LIBRARY) loadLibraryContent()
 
         updateMiniPlayerVisibility()
@@ -759,6 +824,13 @@ class MainActivity : AppCompatActivity() {
         homeGreeting.text = timeOfDayGreeting()
 
         val recent = PlayHistoryStore.getRecent()
+        homeHero.visibility = if (recent.isNotEmpty()) View.VISIBLE else View.GONE
+        recent.firstOrNull()?.let { track ->
+            homeHeroTitle.text = track.title
+            homeHeroArtist.text = track.artist.ifBlank { "Unknown artist" }
+            loadArtwork(homeHeroArt, track)
+            homeHeroPlay.setOnClickListener { playTrack(track) }
+        }
         homeRecentContainer.removeAllViews()
         homePicksContainer.removeAllViews()
         homeDiscoverContainer.removeAllViews()
@@ -900,28 +972,200 @@ class MainActivity : AppCompatActivity() {
     // ---------------------------------------------------------------
 
     private fun wireSearchScreen() {
+        loadSearchHistory()
         searchButton.setOnClickListener { search(searchInput.text.toString()) }
         searchInput.setOnEditorActionListener { _, _, _ -> search(searchInput.text.toString()); true }
+        searchClearButton.setOnClickListener {
+            searchInput.text.clear()
+            resultsContainer.removeAllViews()
+            searchStatus.visibility = View.GONE
+            searchClearButton.visibility = View.GONE
+            renderSearchHistory()
+        }
+        searchClearHistory.setOnClickListener {
+            searchHistory.clear()
+            saveSearchHistory()
+            renderSearchHistory()
+        }
+        searchFilterAll.setOnClickListener { setSearchFilter("all") }
+        searchFilterSongs.setOnClickListener { setSearchFilter("songs") }
+        searchFilterArtists.setOnClickListener { setSearchFilter("artists") }
+        searchFilterAlbums.setOnClickListener { setSearchFilter("albums") }
+        searchFilterPlaylists.setOnClickListener { setSearchFilter("playlists") }
+    }
+
+    private fun loadSearchHistory() {
+        searchHistory.clear()
+        searchHistory.addAll(searchPrefs.getStringSet("queries", emptySet()).orEmpty().take(8))
+    }
+
+    private fun saveSearchHistory() {
+        searchPrefs.edit().putStringSet("queries", searchHistory.toSet()).apply()
+    }
+
+    private fun rememberSearch(query: String) {
+        val q = query.trim()
+        if (q.isBlank()) return
+        searchHistory.removeAll { it.equals(q, ignoreCase = true) }
+        searchHistory.add(0, q)
+        while (searchHistory.size > 8) searchHistory.removeAt(searchHistory.lastIndex)
+        saveSearchHistory()
+    }
+
+    private fun renderSearchHistory() {
+        searchRecentContainer.removeAllViews()
+        searchRecentSection.visibility = if (searchHistory.isEmpty()) View.GONE else View.VISIBLE
+        if (searchHistory.isEmpty()) return
+        searchHistory.forEach { query ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(8, 8, 8, 8)
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_rounded_pressed)
+                isClickable = true
+                isFocusable = true
+            }
+            val icon = ImageView(this).apply {
+                setImageResource(R.drawable.ic_history)
+                setColorFilter(colorOf(R.color.text_muted))
+                layoutParams = LinearLayout.LayoutParams(20, 20)
+            }
+            val text = TextView(this).apply {
+                this.text = query
+                setTextColor(colorOf(R.color.text_primary))
+                textSize = 14f
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = 12 }
+            }
+            val more = ImageButton(this).apply {
+                setImageResource(R.drawable.ic_close)
+                setColorFilter(colorOf(R.color.text_faint))
+                background = ContextCompat.getDrawable(this@MainActivity, R.drawable.ripple_circle_ghost)
+                setPadding(10, 10, 10, 10)
+                layoutParams = LinearLayout.LayoutParams(40, 40)
+                contentDescription = "Remove search"
+                setOnClickListener {
+                    searchHistory.remove(query)
+                    saveSearchHistory()
+                    renderSearchHistory()
+                }
+            }
+            row.addView(icon); row.addView(text); row.addView(more)
+            row.setOnClickListener { searchInput.setText(query); searchInput.setSelection(query.length); search(query) }
+            searchRecentContainer.addView(row, LinearLayout.LayoutParams(-1, 50).apply { bottomMargin = 5 })
+        }
+    }
+
+    private fun setSearchFilter(filter: String) {
+        searchFilter = filter
+        val views = listOf(searchFilterAll, searchFilterSongs, searchFilterArtists, searchFilterAlbums, searchFilterPlaylists)
+        val keys = listOf("all", "songs", "artists", "albums", "playlists")
+        views.forEachIndexed { i, v -> v.background = ContextCompat.getDrawable(this, if (keys[i] == filter) R.drawable.bg_chip_selected else R.drawable.bg_chip) }
+        if (lastSearchResults.isNotEmpty()) renderFilteredSearchResults()
     }
 
     private fun search(query: String) {
-        if (query.isBlank()) return
-
+        val clean = query.trim()
+        if (clean.isBlank()) return
+        rememberSearch(clean)
+        searchClearButton.visibility = View.VISIBLE
         resultsContainer.removeAllViews()
+        searchRecentSection.visibility = View.GONE
         searchStatus.visibility = View.VISIBLE
-        searchStatus.text = "Searching..."
-
+        searchStatus.text = "Searching REO…"
         screenScope.launch {
-            val results = withContext(Dispatchers.IO) { musicProvider.search(query) }
-
+            val results = withContext(Dispatchers.IO) { musicProvider.search(clean).take(50) }
+            lastSearchResults = results
             if (results.isEmpty()) {
-                searchStatus.text = "No results found"
+                searchStatus.text = "No results for \"$clean\""
                 return@launch
             }
-
             searchStatus.visibility = View.GONE
-            results.forEach { track -> addTrackRow(resultsContainer, track) }
+            renderFilteredSearchResults()
         }
+    }
+
+    private fun renderFilteredSearchResults() {
+        resultsContainer.removeAllViews()
+        val results = lastSearchResults
+        when (searchFilter) {
+            "artists" -> {
+                val artists = results.map { it.artist.ifBlank { "Unknown artist" } }.distinct().take(20)
+                addSearchSectionHeader("Artists")
+                artists.forEach { artist -> addSearchEntityRow(artist, "Artist", R.drawable.ic_library) { search(artist) } }
+            }
+            "albums" -> {
+                val albums = results.map { it.album }.filter { it.isNotBlank() }.distinct().take(20)
+                if (albums.isEmpty()) {
+                    addSearchSectionHeader("Albums")
+                    addSearchEmptyRow("Album information is not available for these results yet.")
+                } else {
+                    addSearchSectionHeader("Albums")
+                    albums.forEach { album ->
+                        val track = results.first { it.album == album }
+                        addSearchEntityRow(album, track.artist, R.drawable.ic_playlist) { playTrack(track) }
+                    }
+                }
+            }
+            "playlists" -> {
+                addSearchSectionHeader("Your playlists")
+                val playlists = PlaylistStore.getAll().filter { it.name.contains(searchInput.text.toString(), true) }
+                if (playlists.isEmpty()) addSearchEmptyRow("No matching playlists")
+                playlists.forEach { playlist -> addSearchEntityRow(playlist.name, "Playlist", R.drawable.ic_playlist) { openListScreen(ListMode.PLAYLIST, playlist.id) } }
+            }
+            else -> {
+                addSearchSectionHeader("Songs")
+                results.forEach { track -> addTrackRow(resultsContainer, track) }
+            }
+        }
+    }
+
+    private fun addSearchSectionHeader(title: String) {
+        val header = TextView(this).apply {
+            text = title
+            setTextColor(colorOf(R.color.text_primary))
+            textSize = 18f
+            typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+            setPadding(0, 8, 0, 10)
+        }
+        resultsContainer.addView(header)
+    }
+
+    private fun addSearchEmptyRow(message: String) {
+        val text = TextView(this).apply {
+            this.text = message
+            setTextColor(colorOf(R.color.text_muted))
+            textSize = 13f
+            setPadding(0, 8, 0, 20)
+        }
+        resultsContainer.addView(text)
+    }
+
+    private fun addSearchEntityRow(titleValue: String, subtitleValue: String, iconRes: Int, action: () -> Unit) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_rounded_pressed)
+            setPadding(12, 10, 12, 10)
+            isClickable = true
+            isFocusable = true
+        }
+        val icon = ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(colorOf(R.color.accent))
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_recent_card)
+            setPadding(12, 12, 12, 12)
+            layoutParams = LinearLayout.LayoutParams(48, 48)
+        }
+        val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = 12 } }
+        val title = TextView(this).apply { text = titleValue; setTextColor(colorOf(R.color.text_primary)); textSize = 14f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        val sub = TextView(this).apply { text = subtitleValue; setTextColor(colorOf(R.color.text_muted)); textSize = 12f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        text.addView(title); text.addView(sub)
+        row.addView(icon); row.addView(text)
+        row.setOnClickListener { action() }
+        row.setOnLongClickListener { action(); true }
+        resultsContainer.addView(row, LinearLayout.LayoutParams(-1, 68).apply { bottomMargin = 6 })
     }
 
     /** Generic track row used by Home picks, Search results, and various list screens. */
@@ -973,6 +1217,9 @@ class MainActivity : AppCompatActivity() {
         labels.add("Add to playlist")
         actions.add { showAddToPlaylistDialog(track) }
 
+        labels.add("Play next")
+        actions.add { playTrackNext(track) }
+
         labels.add("Add to queue")
         actions.add { addTrackToQueue(track) }
 
@@ -993,6 +1240,21 @@ class MainActivity : AppCompatActivity() {
             .setTitle(track.title)
             .setItems(labels.toTypedArray()) { _, which -> actions[which].invoke() }
             .show()
+    }
+
+    private fun playTrackNext(track: MusicTrack) {
+        val controller = mediaController ?: return
+        screenScope.launch {
+            val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(track.videoId) }
+            if (streamUrl.isNullOrBlank()) {
+                Toast.makeText(this@MainActivity, "Couldn't prepare track", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val insertAt = (controller.currentMediaItemIndex + 1).coerceAtMost(controller.mediaItemCount)
+            controller.addMediaItem(insertAt, buildMediaItem(track, streamUrl))
+            refreshQueueList()
+            Toast.makeText(this@MainActivity, "Playing next", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun addTrackToQueue(track: MusicTrack) {
@@ -1584,7 +1846,7 @@ class MainActivity : AppCompatActivity() {
             npQueueEmpty.visibility = View.VISIBLE
         } else {
             npQueueEmpty.visibility = View.GONE
-            for (i in (currentIndex + 1) until minOf(count, currentIndex + 1 + 12)) {
+            for (i in (currentIndex + 1) until minOf(count, currentIndex + 1 + 15)) {
                 addQueuePreviewRow(controller.getMediaItemAt(i), i)
             }
         }
@@ -1695,6 +1957,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshSmartShuffleIcon() {
         npShuffleBtn.setColorFilter(if (AppSettings.smartShuffleEnabled) colorOf(R.color.accent) else colorOf(R.color.text_muted))
+    }
+
+    private fun installTabSwipeGestures() {
+        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+                if (e1 == null || abs(velocityX) < 500f || abs(velocityX) < abs(velocityY) * 1.15f) return false
+                val tabs = Tab.values()
+                val index = tabs.indexOf(currentTab)
+                val next = if (velocityX < 0) index + 1 else index - 1
+                if (next in tabs.indices) showTab(tabs[next])
+                return true
+            }
+        })
+        listOf(screenHome, screenSearch, screenLibrary, screenSettings).forEach { screen ->
+            screen.setOnTouchListener { _, event -> detector.onTouchEvent(event); false }
+        }
     }
 
     // ---------------------------------------------------------------
@@ -1848,11 +2127,26 @@ class MainActivity : AppCompatActivity() {
         npAlbumArt.setImageResource(R.drawable.bg_album_art_placeholder)
         miniArt.setImageResource(R.drawable.bg_thumb_small)
         if (artwork.isNotBlank()) {
+            val fallback = if (item.mediaId.isNotBlank()) "https://i.ytimg.com/vi/${item.mediaId}/hqdefault.jpg" else ""
             npAlbumArt.load(artwork) {
-                placeholder(R.drawable.bg_album_art_placeholder); error(R.drawable.bg_album_art_placeholder); crossfade(180)
+                placeholder(R.drawable.bg_album_art_placeholder)
+                error(R.drawable.bg_album_art_placeholder)
+                crossfade(180)
+                listener(onError = { _, _ ->
+                    if (fallback.isNotBlank() && artwork != fallback) {
+                        npAlbumArt.load(fallback) { placeholder(R.drawable.bg_album_art_placeholder); error(R.drawable.bg_album_art_placeholder); crossfade(120) }
+                    }
+                })
             }
             miniArt.load(artwork) {
-                placeholder(R.drawable.bg_thumb_small); error(R.drawable.bg_thumb_small); crossfade(180)
+                placeholder(R.drawable.bg_thumb_small)
+                error(R.drawable.bg_thumb_small)
+                crossfade(180)
+                listener(onError = { _, _ ->
+                    if (fallback.isNotBlank() && artwork != fallback) {
+                        miniArt.load(fallback) { placeholder(R.drawable.bg_thumb_small); error(R.drawable.bg_thumb_small); crossfade(120) }
+                    }
+                })
             }
         }
 

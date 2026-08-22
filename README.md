@@ -39,3 +39,17 @@ The repository includes a GitHub Actions workflow that builds `:app:assembleDebu
 - Smart Shuffle resolves up to 12 related tracks per refill.
 - Larger, cleaner queue rows and a dedicated View all queue action.
 - Material/dynamic theme architecture and Media3 playback remain intact.
+
+
+## REO Music 2.2.0 — UI/UX Evolution
+
+This release is a large interface pass inspired by the interaction patterns of modern music clients, including YouTube Music, while retaining REO's own branding and playback stack.
+
+- Reworked Home with personalized hero, Listen again, Quick picks, discovery rows and shortcut actions.
+- Reworked Search with recent searches, search filters, 50-result retrieval, artist/album/playlist views and clearer empty/loading states.
+- Reworked Library with compact media sections and playlist-first navigation.
+- Added swipe navigation between primary tabs.
+- Preserved long-press and gesture controls from 2.1.0.
+- Expanded smart queue look-ahead to 20 candidates and queue preview to 15 upcoming tracks.
+- Improved selected navigation states and touch targets.
+- Kept Media3 playback, downloads, lyrics, cache and provider architecture intact.

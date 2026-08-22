@@ -48,7 +48,7 @@
             android:orientation="horizontal"
             android:gravity="center_vertical"
             android:background="@drawable/bg_mini_player"
-            android:padding="10dp"
+            android:padding="9dp"
             android:visibility="gone"
             android:clickable="true"
             android:focusable="true">
@@ -107,7 +107,7 @@
         <LinearLayout
             android:id="@+id/bottom_nav"
             android:layout_width="match_parent"
-            android:layout_height="66dp"
+            android:layout_height="74dp"
             android:orientation="horizontal"
             android:background="@drawable/bg_bottom_bar"
             android:elevation="6dp">
@@ -115,6 +115,10 @@
             <LinearLayout
                 android:id="@+id/tab_home"
                 android:layout_width="0dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginBottom="5dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:orientation="vertical"
@@ -145,6 +149,10 @@
             <LinearLayout
                 android:id="@+id/tab_search"
                 android:layout_width="0dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginBottom="5dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:orientation="vertical"
@@ -175,6 +183,10 @@
             <LinearLayout
                 android:id="@+id/tab_library"
                 android:layout_width="0dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginBottom="5dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:orientation="vertical"
@@ -205,6 +217,10 @@
             <LinearLayout
                 android:id="@+id/tab_settings"
                 android:layout_width="0dp"
+                android:layout_marginStart="4dp"
+                android:layout_marginEnd="4dp"
+                android:layout_marginTop="5dp"
+                android:layout_marginBottom="5dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:orientation="vertical"
