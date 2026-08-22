@@ -1159,8 +1159,8 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(48, 48)
         }
         val text = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = 12 } }
-        val title = TextView(this).apply { text = titleValue; setTextColor(colorOf(R.color.text_primary)); textSize = 14f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
-        val sub = TextView(this).apply { text = subtitleValue; setTextColor(colorOf(R.color.text_muted)); textSize = 12f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        val title = TextView(this).apply { this.text = titleValue; setTextColor(colorOf(R.color.text_primary)); textSize = 14f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
+        val sub = TextView(this).apply { this.text = subtitleValue; setTextColor(colorOf(R.color.text_muted)); textSize = 12f; maxLines = 1; ellipsize = android.text.TextUtils.TruncateAt.END }
         text.addView(title); text.addView(sub)
         row.addView(icon); row.addView(text)
         row.setOnClickListener { action() }
