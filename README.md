@@ -28,3 +28,14 @@ Media3 provides gapless playlist playback and skip-silence. A true overlapping t
 ## Build
 
 The repository includes a GitHub Actions workflow that builds `:app:assembleDebug` on Ubuntu with Java 17 and Gradle 8.13.
+
+## REO Music 2.0.0 — Big UI/Playback Upgrade
+
+- YouTube Music-inspired full-screen Now Playing experience.
+- Fixed album-art card sizing so artwork has a real square layout instead of collapsing to zero height.
+- Removed the old waveform visualizer and its permission; this also removes the persistent `-------` artifact.
+- Up Next now previews up to 12 tracks instead of 5.
+- Direct playlists/search queues can stage up to 50 upcoming tracks.
+- Smart Shuffle resolves up to 12 related tracks per refill.
+- Larger, cleaner queue rows and a dedicated View all queue action.
+- Material/dynamic theme architecture and Media3 playback remain intact.

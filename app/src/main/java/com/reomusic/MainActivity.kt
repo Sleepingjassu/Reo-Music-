@@ -53,7 +53,7 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 private enum class ListMode { QUEUE, FAVORITES, HISTORY, DOWNLOADS, PLAYLIST }
 private enum class SortField { DEFAULT, TITLE, ARTIST, DURATION }
 
-private const val MAX_QUEUE_LOOKAHEAD = 8
+private const val MAX_QUEUE_LOOKAHEAD = 12
 private const val SMART_SHUFFLE_MIN_UPCOMING = 3
 
 class MainActivity : AppCompatActivity() {
@@ -90,7 +90,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var nowPlayingCollapse: ImageButton
     private lateinit var npArtGestureArea: View
     private lateinit var npAlbumArt: ImageView
-    private lateinit var npVisualizer: VisualizerBarView
     private lateinit var npTrackTitle: TextView
     private lateinit var npTrackArtist: TextView
     private lateinit var npProgressBar: SeekBar
@@ -221,13 +220,6 @@ class MainActivity : AppCompatActivity() {
     private val notificationPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
-    private val recordAudioPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) {
-                if (currentAudioSessionId != 0) npVisualizer.start(currentAudioSessionId)
-            }
-        }
-
     private val tickRunnable = object : Runnable {
         override fun run() {
             refreshProgress()
@@ -274,9 +266,6 @@ class MainActivity : AppCompatActivity() {
         override fun onAudioSessionIdChanged(audioSessionId: Int) {
             currentAudioSessionId = audioSessionId
             EqualizerManager.attach(audioSessionId)
-            if (isNowPlayingOpen) {
-                startVisualizerIfPermitted(audioSessionId)
-            }
         }
     }
 
@@ -373,7 +362,6 @@ class MainActivity : AppCompatActivity() {
         nowPlayingCollapse = findViewById(R.id.now_playing_collapse)
         npArtGestureArea = findViewById(R.id.np_art_gesture_area)
         npAlbumArt = findViewById(R.id.np_album_art)
-        npVisualizer = findViewById(R.id.np_visualizer)
         npTrackTitle = findViewById(R.id.np_track_title)
         npTrackArtist = findViewById(R.id.np_track_artist)
         npProgressBar = findViewById(R.id.np_progress_bar)
@@ -399,8 +387,7 @@ class MainActivity : AppCompatActivity() {
         npQueueContainer = findViewById(R.id.np_queue_container)
         npQueueEmpty = findViewById(R.id.np_queue_empty)
 
-        val albumArtCard = findViewById<View>(R.id.np_album_art_card)
-        albumArtCard.addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
+        npArtGestureArea.addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
             val width = right - left
             val height = bottom - top
             if (width > 0 && width != height) {
@@ -617,7 +604,6 @@ class MainActivity : AppCompatActivity() {
             .setInterpolator(DecelerateInterpolator())
             .start()
 
-        if (currentAudioSessionId != 0) startVisualizerIfPermitted(currentAudioSessionId)
         refreshHeartIcon(currentPlayingTrack()?.let { FavoritesStore.isLiked(it.videoId) } ?: false)
         refreshDownloadIcon()
 
@@ -626,7 +612,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun closeNowPlaying() {
         isNowPlayingOpen = false
-        npVisualizer.stop()
 
         nowPlayingOverlay.animate()
             .translationY(nowPlayingOverlay.height.toFloat())
@@ -638,16 +623,6 @@ class MainActivity : AppCompatActivity() {
             .start()
 
         updateMiniPlayerVisibility()
-    }
-
-    private fun startVisualizerIfPermitted(audioSessionId: Int) {
-        val granted = ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) ==
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        if (granted) {
-            npVisualizer.start(audioSessionId)
-        } else {
-            recordAudioPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-        }
     }
 
     @Deprecated("Deprecated in Java")
@@ -1493,7 +1468,7 @@ class MainActivity : AppCompatActivity() {
 
         if (rest.isNotEmpty()) {
             queueBuildJob = screenScope.launch {
-                for (candidate in rest.take(30)) {
+                for (candidate in rest.take(50)) {
                     val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(candidate.videoId) }
                     if (streamUrl.isNullOrBlank()) continue
                     if (mediaController !== controller) return@launch
@@ -1556,7 +1531,7 @@ class MainActivity : AppCompatActivity() {
             npQueueEmpty.visibility = View.VISIBLE
         } else {
             npQueueEmpty.visibility = View.GONE
-            for (i in (currentIndex + 1) until minOf(count, currentIndex + 1 + 5)) {
+            for (i in (currentIndex + 1) until minOf(count, currentIndex + 1 + 12)) {
                 addQueuePreviewRow(controller.getMediaItemAt(i), i)
             }
         }
@@ -1970,7 +1945,6 @@ class MainActivity : AppCompatActivity() {
         FavoritesStore.removeListener(::onFavoritesChanged)
         PlaylistStore.removeListener(::onPlaylistsChanged)
         EqualizerManager.release()
-        npVisualizer.stop()
         screenScope.cancel()
 
         if (::controllerFuture.isInitialized) {

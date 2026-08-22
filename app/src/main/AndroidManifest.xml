@@ -18,8 +18,6 @@
     <!-- Equalizer -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 
-    <!-- Real-time visualizer bars (only ever attached to our own playback session) -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
     <application
         android:icon="@mipmap/ic_launcher"
