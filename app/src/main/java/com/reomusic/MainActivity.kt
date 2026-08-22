@@ -575,19 +575,55 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // Swipe-to-skip on the album art.
-        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+        // YouTube Music-style gestures on the album-art surface:
+        // tap = play/pause, double-tap = like, long-press = track actions,
+        // horizontal swipe = next/previous, vertical swipe = lyrics/close.
+        val artGestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+                togglePlayPause()
+                return true
+            }
+
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                val track = currentPlayingTrack() ?: return true
+                val liked = FavoritesStore.toggle(track)
+                refreshHeartIcon(liked)
+                Toast.makeText(this@MainActivity, if (liked) "Added to liked songs" else "Removed from liked songs", Toast.LENGTH_SHORT).show()
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                currentPlayingTrack()?.let { showTrackOptionsMenu(it) }
+            }
+
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                val startX = e1?.x ?: return false
-                val diffX = e2.x - startX
-                if (abs(diffX) > 120 && abs(velocityX) > 300 && abs(diffX) > abs(e2.y - e1.y)) {
-                    if (diffX < 0) mediaController?.seekToNextMediaItem() else mediaController?.seekToPreviousMediaItem()
+                val start = e1 ?: return false
+                val diffX = e2.x - start.x
+                val diffY = e2.y - start.y
+
+                if (abs(diffX) > 120f && abs(velocityX) > 300f && abs(diffX) > abs(diffY)) {
+                    if (diffX < 0f) mediaController?.seekToNextMediaItem()
+                    else mediaController?.seekToPreviousMediaItem()
                     return true
                 }
+
+                if (abs(diffY) > 150f && abs(velocityY) > 300f && abs(diffY) > abs(diffX)) {
+                    if (diffY < 0f) openLyrics() else closeNowPlaying()
+                    return true
+                }
+
                 return false
             }
         })
-        npArtGestureArea.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event) }
+        npArtGestureArea.setOnTouchListener { _, event -> artGestureDetector.onTouchEvent(event) }
+
+        // Long-press the queue header to jump straight to the full queue.
+        npQueueHeader.setOnLongClickListener {
+            openListScreen(ListMode.QUEUE)
+            true
+        }
     }
 
     private fun openNowPlaying() {
@@ -648,23 +684,40 @@ class MainActivity : AppCompatActivity() {
     private fun wireMiniPlayer() {
         miniPlayPause.setOnClickListener { togglePlayPause() }
 
-        val gestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
-            override fun onSingleTapUp(e: MotionEvent): Boolean {
+        val miniGestureDetector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+
+            override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
                 openNowPlaying()
                 return true
             }
 
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                togglePlayPause()
+                return true
+            }
+
+            override fun onLongPress(e: MotionEvent) {
+                currentPlayingTrack()?.let { showTrackOptionsMenu(it) }
+            }
+
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
-                val startX = e1?.x ?: return false
-                val diffX = e2.x - startX
-                if (abs(diffX) > 90 && abs(velocityX) > 250) {
-                    if (diffX < 0) mediaController?.seekToNextMediaItem() else mediaController?.seekToPreviousMediaItem()
+                val start = e1 ?: return false
+                val diffX = e2.x - start.x
+                val diffY = e2.y - start.y
+                if (abs(diffX) > 90f && abs(velocityX) > 250f && abs(diffX) > abs(diffY)) {
+                    if (diffX < 0f) mediaController?.seekToNextMediaItem()
+                    else mediaController?.seekToPreviousMediaItem()
+                    return true
+                }
+                if (abs(diffY) > 90f && abs(velocityY) > 250f && abs(diffY) > abs(diffX)) {
+                    if (diffY < 0f) openNowPlaying() else closeNowPlaying()
                     return true
                 }
                 return false
             }
         })
-        miniPlayer.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event) }
+        miniPlayer.setOnTouchListener { _, event -> miniGestureDetector.onTouchEvent(event) }
     }
 
     private fun togglePlayPause() {
@@ -1562,6 +1615,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         row.setOnClickListener { mediaController?.seekTo(index, 0L); mediaController?.play() }
+        row.setOnLongClickListener {
+            val track = MusicTrack(
+                videoId = item.mediaId,
+                title = item.mediaMetadata.title?.toString() ?: "Unknown title",
+                artist = item.mediaMetadata.artist?.toString() ?: "",
+                album = item.mediaMetadata.albumTitle?.toString() ?: "",
+                thumbnailUrl = item.mediaMetadata.artworkUri?.toString() ?: ""
+            )
+            showTrackOptionsMenu(track)
+            true
+        }
         npQueueContainer.addView(row)
     }
 
