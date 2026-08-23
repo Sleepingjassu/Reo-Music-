@@ -1,4 +1,5 @@
 package com.reomusic
+import okhttp3.RequestBody.Companion.toRequestBody
 
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
@@ -235,18 +236,12 @@ private class OkHttpDownloader(
             val body =
                 request.dataToSend()
                     ?.let {
-                        okhttp3.RequestBody.create(
-                            null,
-                            it
-                        )
+                        it.toRequestBody(null)
                     }
 
             builder.post(
                 body
-                    ?: okhttp3.RequestBody.create(
-                        null,
-                        ByteArray(0)
-                    )
+                    ?: ByteArray(0).toRequestBody(null)
             )
 
         } else {
