@@ -20,23 +20,9 @@
         <LinearLayout
             android:id="@+id/now_playing_drag_area"
             android:layout_width="match_parent"
-            android:layout_height="48dp"
+            android:layout_height="30dp"
             android:orientation="vertical"
-            android:gravity="center_horizontal">
-            <View
-                android:layout_width="38dp"
-                android:layout_height="4dp"
-                android:layout_marginTop="10dp"
-                android:background="@drawable/bg_drag_handle" />
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="NOW PLAYING"
-                android:textColor="@color/text_faint"
-                android:textSize="10sp"
-                android:letterSpacing="0.2" />
-        </LinearLayout>
+            android:gravity="center" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -56,9 +42,9 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:gravity="center"
-                android:text="REO"
+                android:text="Now Playing"
                 android:textColor="@color/text_primary"
-                android:textSize="14sp"
+                android:textSize="16sp"
                 android:fontFamily="sans-serif-medium" />
             <ImageButton
                 android:id="@+id/np_sleep_timer_btn"
@@ -137,6 +123,16 @@
                     android:text="Search for a song to begin"
                     android:textColor="@color/text_muted"
                     android:textSize="14sp"
+                    android:maxLines="1"
+                    android:ellipsize="end" />
+                <TextView
+                    android:id="@+id/np_album_context"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="REO Music"
+                    android:textColor="@color/text_faint"
+                    android:textSize="12sp"
                     android:maxLines="1"
                     android:ellipsize="end" />
             </LinearLayout>
@@ -240,6 +236,37 @@
         </LinearLayout>
 
         <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:gravity="center_horizontal"
+            android:orientation="horizontal">
+
+            <ImageButton
+                android:id="@+id/np_repeat_btn"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="@drawable/ripple_circle_ghost"
+                android:src="@drawable/ic_repeat"
+                android:tint="@color/text_muted"
+                android:padding="9dp"
+                android:contentDescription="Repeat" />
+
+            <TextView
+                android:id="@+id/np_speed_btn"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/ripple_circle_ghost"
+                android:gravity="center"
+                android:text="1x"
+                android:textColor="@color/text_muted"
+                android:textSize="12sp"
+                android:fontFamily="sans-serif-medium"
+                android:contentDescription="Playback speed" />
+        </LinearLayout>
+
+        <LinearLayout
             android:id="@+id/np_queue_header"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -265,6 +292,14 @@
                 android:textColor="@color/text_primary"
                 android:textSize="17sp"
                 android:fontFamily="sans-serif-medium" />
+            <TextView
+                android:id="@+id/np_queue_count"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="12dp"
+                android:text="15"
+                android:textColor="@color/text_faint"
+                android:textSize="12sp" />
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -310,7 +345,7 @@
                 android:layout_weight="1"
                 android:layout_gravity="center_vertical"
                 android:layout_marginStart="10dp"
-                android:text="Lyrics, downloads and audio controls"
+                android:text="Lyrics  ·  Downloads  ·  Audio controls"
                 android:textColor="@color/text_faint"
                 android:textSize="12sp" />
         </LinearLayout>

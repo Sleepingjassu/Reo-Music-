@@ -45,6 +45,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
@@ -53,8 +54,8 @@ private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 private enum class ListMode { QUEUE, FAVORITES, HISTORY, DOWNLOADS, PLAYLIST }
 private enum class SortField { DEFAULT, TITLE, ARTIST, DURATION }
 
-private const val MAX_QUEUE_LOOKAHEAD = 20
-private const val SMART_SHUFFLE_MIN_UPCOMING = 3
+private const val MAX_QUEUE_LOOKAHEAD = 30
+private const val SMART_SHUFFLE_MIN_UPCOMING = 5
 
 class MainActivity : AppCompatActivity() {
 
@@ -92,6 +93,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var npAlbumArt: ImageView
     private lateinit var npTrackTitle: TextView
     private lateinit var npTrackArtist: TextView
+    private lateinit var npAlbumContext: TextView
     private lateinit var npProgressBar: SeekBar
     private lateinit var npTimeElapsed: TextView
     private lateinit var npTimeTotal: TextView
@@ -99,6 +101,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var npBtnPlayPause: ImageButton
     private lateinit var npBtnNext: ImageButton
     private lateinit var npShuffleBtn: ImageButton
+    private lateinit var npRepeatBtn: ImageButton
+    private lateinit var npSpeedBtn: TextView
     private lateinit var npDownloadBtn: ImageButton
     private lateinit var npHeartBtn: ImageButton
     private lateinit var npSleepTimerBtn: ImageButton
@@ -114,6 +118,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var npQueueHeader: View
     private lateinit var npQueueContainer: LinearLayout
     private lateinit var npQueueEmpty: TextView
+    private lateinit var npQueueCount: TextView
 
     // Home screen
     private lateinit var homeGreeting: TextView
@@ -139,6 +144,7 @@ class MainActivity : AppCompatActivity() {
     // Search screen
     private lateinit var searchInput: EditText
     private lateinit var searchButton: ImageButton
+    private lateinit var searchVoiceButton: ImageButton
     private lateinit var searchClearButton: ImageButton
     private lateinit var searchStatus: TextView
     private lateinit var resultsContainer: LinearLayout
@@ -152,6 +158,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchFilterPlaylists: TextView
     private var lastSearchResults: List<MusicTrack> = emptyList()
     private var searchFilter: String = "all"
+    private var searchDebounceJob: Job? = null
+    private var searchJob: Job? = null
 
     // Library screen
     private lateinit var libraryLikedRow: View
@@ -198,6 +206,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var switchSmartShuffle: Switch
     private lateinit var switchSkipSilence: Switch
     private lateinit var switchCrossfade: Switch
+    private lateinit var settingsCrossfadeDurationRow: View
+    private lateinit var settingsCrossfadeDuration: TextView
+    private lateinit var switchWifiOnlyDownloads: Switch
     private lateinit var themeOptionSystem: TextView
     private lateinit var themeOptionLight: TextView
     private lateinit var themeOptionDark: TextView
@@ -390,6 +401,7 @@ class MainActivity : AppCompatActivity() {
         npAlbumArt = findViewById(R.id.np_album_art)
         npTrackTitle = findViewById(R.id.np_track_title)
         npTrackArtist = findViewById(R.id.np_track_artist)
+        npAlbumContext = findViewById(R.id.np_album_context)
         npProgressBar = findViewById(R.id.np_progress_bar)
         npTimeElapsed = findViewById(R.id.np_time_elapsed)
         npTimeTotal = findViewById(R.id.np_time_total)
@@ -397,6 +409,8 @@ class MainActivity : AppCompatActivity() {
         npBtnPlayPause = findViewById(R.id.np_btn_play_pause)
         npBtnNext = findViewById(R.id.np_btn_next)
         npShuffleBtn = findViewById(R.id.np_shuffle_btn)
+        npRepeatBtn = findViewById(R.id.np_repeat_btn)
+        npSpeedBtn = findViewById(R.id.np_speed_btn)
         npDownloadBtn = findViewById(R.id.np_download_btn)
         npHeartBtn = findViewById(R.id.np_heart_btn)
         npSleepTimerBtn = findViewById(R.id.np_sleep_timer_btn)
@@ -412,6 +426,7 @@ class MainActivity : AppCompatActivity() {
         npQueueHeader = findViewById(R.id.np_queue_header)
         npQueueContainer = findViewById(R.id.np_queue_container)
         npQueueEmpty = findViewById(R.id.np_queue_empty)
+        npQueueCount = findViewById(R.id.np_queue_count)
 
         homeGreeting = findViewById(R.id.home_greeting)
         homeRecentSection = findViewById(R.id.home_recent_section)
@@ -435,6 +450,7 @@ class MainActivity : AppCompatActivity() {
 
         searchInput = findViewById(R.id.search_input)
         searchButton = findViewById(R.id.search_button)
+        searchVoiceButton = findViewById(R.id.search_voice_button)
         searchClearButton = findViewById(R.id.search_clear_button)
         searchStatus = findViewById(R.id.search_status)
         resultsContainer = findViewById(R.id.results_container)
@@ -482,6 +498,9 @@ class MainActivity : AppCompatActivity() {
         switchSmartShuffle = findViewById(R.id.switch_smart_shuffle)
         switchSkipSilence = findViewById(R.id.switch_skip_silence)
         switchCrossfade = findViewById(R.id.switch_crossfade)
+        settingsCrossfadeDurationRow = findViewById(R.id.settings_crossfade_duration_row)
+        settingsCrossfadeDuration = findViewById(R.id.settings_crossfade_duration)
+        switchWifiOnlyDownloads = findViewById(R.id.switch_wifi_only_downloads)
         themeOptionSystem = findViewById(R.id.theme_option_system)
         themeOptionLight = findViewById(R.id.theme_option_light)
         themeOptionDark = findViewById(R.id.theme_option_dark)
@@ -569,6 +588,9 @@ class MainActivity : AppCompatActivity() {
             refreshSmartShuffleIcon()
             if (enabled) maybeTopUpSmartQueue()
         }
+
+        npRepeatBtn.setOnClickListener { cycleRepeatMode() }
+        npSpeedBtn.setOnClickListener { cyclePlaybackSpeed() }
 
         npHeartBtn.setOnClickListener {
             val track = currentPlayingTrack() ?: return@setOnClickListener
@@ -661,11 +683,13 @@ class MainActivity : AppCompatActivity() {
                 if (abs(diffX) > 120f && abs(velocityX) > 300f && abs(diffX) > abs(diffY)) {
                     if (diffX < 0f) mediaController?.seekToNextMediaItem()
                     else mediaController?.seekToPreviousMediaItem()
+                    npArtGestureArea.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                     return true
                 }
 
                 if (abs(diffY) > 150f && abs(velocityY) > 300f && abs(diffY) > abs(diffX)) {
                     if (diffY < 0f) openLyrics() else closeNowPlaying()
+                    npArtGestureArea.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                     return true
                 }
 
@@ -697,6 +721,8 @@ class MainActivity : AppCompatActivity() {
 
         refreshHeartIcon(currentPlayingTrack()?.let { FavoritesStore.isLiked(it.videoId) } ?: false)
         refreshDownloadIcon()
+        refreshRepeatModeIcon()
+        refreshPlaybackSpeedLabel()
 
         updateMiniPlayerVisibility()
     }
@@ -763,6 +789,7 @@ class MainActivity : AppCompatActivity() {
                 if (abs(diffX) > 90f && abs(velocityX) > 250f && abs(diffX) > abs(diffY)) {
                     if (diffX < 0f) mediaController?.seekToNextMediaItem()
                     else mediaController?.seekToPreviousMediaItem()
+                    miniPlayer.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                     return true
                 }
                 if (abs(diffY) > 90f && abs(velocityY) > 250f && abs(diffY) > abs(diffX)) {
@@ -859,7 +886,7 @@ class MainActivity : AppCompatActivity() {
 
             // Always-on Spotify-style discovery rows, so the app never opens to a blank page.
             var anyDiscoverLoaded = false
-            homeDiscoverSeeds.shuffled().take(4).forEach { (query, label) ->
+            homeDiscoverSeeds.shuffled().take(6).forEach { (query, label) ->
                 val tracks = withContext(Dispatchers.IO) { musicProvider.search(query) }.take(10)
                 if (tracks.isNotEmpty()) {
                     anyDiscoverLoaded = true
@@ -965,6 +992,23 @@ class MainActivity : AppCompatActivity() {
         loadSearchHistory()
         searchButton.setOnClickListener { search(searchInput.text.toString()) }
         searchInput.setOnEditorActionListener { _, _, _ -> search(searchInput.text.toString()); true }
+        searchInput.addTextChangedListener(SimpleTextWatcher {
+            val query = searchInput.text.toString().trim()
+            searchDebounceJob?.cancel()
+            if (query.isBlank()) {
+                resultsContainer.removeAllViews()
+                searchStatus.visibility = View.GONE
+                searchClearButton.visibility = View.GONE
+                renderSearchHistory()
+            } else {
+                searchClearButton.visibility = View.VISIBLE
+                searchDebounceJob = screenScope.launch {
+                    kotlinx.coroutines.delay(420L)
+                    if (query.length >= 2) search(query)
+                }
+            }
+        })
+        searchVoiceButton.setOnClickListener { launchVoiceSearch() }
         searchClearButton.setOnClickListener {
             searchInput.text.clear()
             resultsContainer.removeAllViews()
@@ -982,6 +1026,31 @@ class MainActivity : AppCompatActivity() {
         searchFilterArtists.setOnClickListener { setSearchFilter("artists") }
         searchFilterAlbums.setOnClickListener { setSearchFilter("albums") }
         searchFilterPlaylists.setOnClickListener { setSearchFilter("playlists") }
+    }
+
+    private fun launchVoiceSearch() {
+        try {
+            val intent = Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Search REO Music")
+            }
+            startActivityForResult(intent, 3010)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Voice search isn't available on this device", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 3010 && resultCode == RESULT_OK) {
+            val query = data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
+            if (query.isNotBlank()) {
+                searchInput.setText(query)
+                searchInput.setSelection(query.length)
+                search(query)
+            }
+        }
     }
 
     private fun loadSearchHistory() {
@@ -1064,8 +1133,10 @@ class MainActivity : AppCompatActivity() {
         searchRecentSection.visibility = View.GONE
         searchStatus.visibility = View.VISIBLE
         searchStatus.text = "Searching REO…"
-        screenScope.launch {
+        searchJob?.cancel()
+        searchJob = screenScope.launch {
             val results = withContext(Dispatchers.IO) { musicProvider.search(clean).take(50) }
+            if (!isActive) return@launch
             lastSearchResults = results
             if (results.isEmpty()) {
                 searchStatus.text = "No results for \"$clean\""
@@ -1349,6 +1420,47 @@ class MainActivity : AppCompatActivity() {
     // Generic list overlay: Queue / Favorites / History / Downloads / Playlist
     // ---------------------------------------------------------------
 
+    private fun currentQueueAsTracks(): List<MusicTrack> {
+        val controller = mediaController ?: return emptyList()
+        return (0 until controller.mediaItemCount).map { i ->
+            val item = controller.getMediaItemAt(i)
+            MusicTrack(
+                videoId = item.mediaId,
+                title = item.mediaMetadata.title?.toString() ?: "",
+                artist = item.mediaMetadata.artist?.toString() ?: "",
+                album = item.mediaMetadata.albumTitle?.toString() ?: "",
+                thumbnailUrl = item.mediaMetadata.artworkUri?.toString() ?: ""
+            )
+        }
+    }
+
+    private fun showSaveQueueAsPlaylistDialog() {
+        val tracks = currentQueueAsTracks()
+        if (tracks.isEmpty()) {
+            Toast.makeText(this, "Queue is empty", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val input = EditText(this)
+        input.hint = "Playlist name"
+        input.setTextColor(colorOf(R.color.text_primary))
+        input.setHintTextColor(colorOf(R.color.text_muted))
+        val padding = (16 * resources.displayMetrics.density).toInt()
+        input.setPadding(padding, padding, padding, padding)
+
+        AlertDialog.Builder(this)
+            .setTitle("Save queue as playlist")
+            .setView(input)
+            .setPositiveButton("Save") { _, _ ->
+                val playlist = PlaylistStore.create(input.text.toString())
+                tracks.forEach { PlaylistStore.addTrack(playlist.id, it) }
+                Toast.makeText(this, "Saved \u201c${playlist.name}\u201d (${tracks.size} songs)", Toast.LENGTH_SHORT).show()
+                if (currentTab == Tab.LIBRARY) loadLibraryContent()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun wireListOverlay() {
         listBack.setOnClickListener { closeListScreen() }
 
@@ -1380,6 +1492,7 @@ class MainActivity : AppCompatActivity() {
                         .setNegativeButton("Cancel", null)
                         .show()
                 }
+                ListMode.QUEUE -> showSaveQueueAsPlaylistDialog()
                 else -> { /* not used for other modes */ }
             }
         }
@@ -1411,11 +1524,16 @@ class MainActivity : AppCompatActivity() {
                 listSort.visibility = View.GONE
                 listFilterWrap.visibility = View.GONE
                 listActions.visibility = View.GONE
+                listClear.visibility = View.VISIBLE
+                listClear.setImageResource(R.drawable.ic_playlist)
+                listClear.contentDescription = "Save queue as playlist"
             }
             ListMode.FAVORITES -> listTitle.text = "Liked Songs"
             ListMode.HISTORY -> {
                 listTitle.text = "History"
                 listClear.visibility = View.VISIBLE
+                listClear.setImageResource(R.drawable.ic_close)
+                listClear.contentDescription = "Clear history"
                 listActions.visibility = View.GONE
             }
             ListMode.DOWNLOADS -> listTitle.text = "Downloads"
@@ -1825,18 +1943,48 @@ class MainActivity : AppCompatActivity() {
             .build()
     }
 
+    private fun persistQueueSnapshot() {
+        val controller = mediaController ?: return
+        val tracks = currentQueueAsTracks()
+        if (tracks.isNotEmpty()) {
+            QueueStore.save(this, tracks, controller.currentMediaItemIndex, controller.currentPosition)
+        }
+    }
+
+    private fun restoreQueueSnapshotIfNeeded() {
+        val controller = mediaController ?: return
+        if (controller.mediaItemCount > 0) return
+        val snapshot = QueueStore.load(this) ?: return
+        screenScope.launch {
+            val restored = mutableListOf<MediaItem>()
+            for (track in snapshot.tracks.take(50)) {
+                val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(track.videoId) }
+                if (!streamUrl.isNullOrBlank()) restored += buildMediaItem(track, streamUrl)
+            }
+            if (restored.isEmpty() || mediaController !== controller) return@launch
+            val index = snapshot.currentIndex.coerceIn(0, restored.lastIndex)
+            controller.setMediaItems(restored, index, snapshot.positionMs)
+            controller.prepare()
+            refreshNowPlayingMetadata()
+            refreshQueueList()
+        }
+    }
+
     private fun refreshQueueList() {
         val controller = mediaController ?: return
         npQueueContainer.removeAllViews()
 
         val count = controller.mediaItemCount
         val currentIndex = controller.currentMediaItemIndex
+        val upcomingCount = (count - currentIndex - 1).coerceAtLeast(0)
+        npQueueCount.text = if (upcomingCount == 0) "" else upcomingCount.toString()
+        npQueueCount.visibility = if (upcomingCount == 0) View.GONE else View.VISIBLE
 
         if (count <= currentIndex + 1) {
             npQueueEmpty.visibility = View.VISIBLE
         } else {
             npQueueEmpty.visibility = View.GONE
-            for (i in (currentIndex + 1) until minOf(count, currentIndex + 1 + 15)) {
+            for (i in (currentIndex + 1) until minOf(count, currentIndex + 1 + 20)) {
                 addQueuePreviewRow(controller.getMediaItemAt(i), i)
             }
         }
@@ -1847,6 +1995,7 @@ class MainActivity : AppCompatActivity() {
             listContainer.removeAllViews()
             renderQueueList()
         }
+        persistQueueSnapshot()
     }
 
     private fun addQueuePreviewRow(item: MediaItem, index: Int) {
@@ -1885,7 +2034,23 @@ class MainActivity : AppCompatActivity() {
     // Downloads (offline caching)
     // ---------------------------------------------------------------
 
+    private fun isOnWifi(): Boolean {
+        val cm = getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return true
+        val network = cm.activeNetwork ?: return false
+        val caps = cm.getNetworkCapabilities(network) ?: return false
+        return caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI)
+    }
+
+    private fun canStartDownload(): Boolean {
+        if (AppSettings.wifiOnlyDownloads && !isOnWifi()) {
+            Toast.makeText(this, "Wi-Fi only downloads is on \u2014 connect to Wi-Fi to download", Toast.LENGTH_LONG).show()
+            return false
+        }
+        return true
+    }
+
     private fun downloadCurrentTrack() {
+        if (!canStartDownload()) return
         val track = currentPlayingTrack() ?: return
         val streamUrl = resolvedStreamUrls[track.videoId]
 
@@ -1914,6 +2079,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun downloadTrack(track: MusicTrack, onDone: () -> Unit) {
+        if (!canStartDownload()) return
         screenScope.launch {
             val resolution = withContext(Dispatchers.IO) { musicProvider.resolveTrack(track.videoId) }
             val streamUrl = resolution?.streamUrl
@@ -1970,12 +2136,95 @@ class MainActivity : AppCompatActivity() {
     // Settings
     // ---------------------------------------------------------------
 
-    private fun sendPlaybackSettingUpdate() {
+    private fun sendSkipSilenceUpdate() {
         mediaController?.let { controller ->
-            val command = SessionCommand("REO_SET_SKIP_SILENCE", android.os.Bundle.EMPTY)
-            val args = android.os.Bundle().apply { putBoolean("enabled", AppSettings.skipSilenceEnabled) }
+            val command = SessionCommand(PlaybackService.ACTION_SET_SKIP_SILENCE, Bundle.EMPTY)
+            val args = Bundle().apply { putBoolean(PlaybackService.EXTRA_ENABLED, AppSettings.skipSilenceEnabled) }
             controller.sendCustomCommand(command, args)
         }
+    }
+
+    private fun sendCrossfadeEnabledUpdate() {
+        mediaController?.let { controller ->
+            val command = SessionCommand(PlaybackService.ACTION_SET_CROSSFADE_ENABLED, Bundle.EMPTY)
+            val args = Bundle().apply { putBoolean(PlaybackService.EXTRA_ENABLED, AppSettings.crossfadeEnabled) }
+            controller.sendCustomCommand(command, args)
+        }
+    }
+
+    private fun sendCrossfadeDurationUpdate() {
+        mediaController?.let { controller ->
+            val command = SessionCommand(PlaybackService.ACTION_SET_CROSSFADE_DURATION, Bundle.EMPTY)
+            val args = Bundle().apply { putInt(PlaybackService.EXTRA_DURATION_MS, AppSettings.crossfadeDurationMs) }
+            controller.sendCustomCommand(command, args)
+        }
+    }
+
+    private fun sendPlaybackSpeedUpdate() {
+        mediaController?.let { controller ->
+            val command = SessionCommand(PlaybackService.ACTION_SET_PLAYBACK_SPEED, Bundle.EMPTY)
+            val args = Bundle().apply { putFloat(PlaybackService.EXTRA_SPEED, AppSettings.playbackSpeed) }
+            controller.sendCustomCommand(command, args)
+        }
+    }
+
+    private fun showCrossfadeDurationDialog() {
+        val options = arrayOf("2 seconds", "4 seconds", "6 seconds", "8 seconds", "12 seconds")
+        val values = intArrayOf(2000, 4000, 6000, 8000, 12000)
+        val currentIndex = values.indexOf(AppSettings.crossfadeDurationMs).let { if (it < 0) 1 else it }
+
+        AlertDialog.Builder(this)
+            .setTitle("Crossfade duration")
+            .setSingleChoiceItems(options, currentIndex) { dialog, which ->
+                AppSettings.setCrossfadeDurationMs(values[which])
+                sendCrossfadeDurationUpdate()
+                refreshCrossfadeDurationLabel()
+                dialog.dismiss()
+            }
+            .show()
+    }
+
+    private fun refreshCrossfadeDurationLabel() {
+        settingsCrossfadeDuration.text = "${AppSettings.crossfadeDurationMs / 1000}s"
+    }
+
+    private fun cyclePlaybackSpeed() {
+        val speeds = floatArrayOf(0.75f, 1.0f, 1.25f, 1.5f, 1.75f, 2.0f)
+        val currentIndex = speeds.indexOfFirst { kotlin.math.abs(it - AppSettings.playbackSpeed) < 0.01f }.let { if (it < 0) 1 else it }
+        val nextSpeed = speeds[(currentIndex + 1) % speeds.size]
+
+        AppSettings.setPlaybackSpeed(nextSpeed)
+        mediaController?.setPlaybackSpeed(nextSpeed)
+        sendPlaybackSpeedUpdate()
+        refreshPlaybackSpeedLabel()
+    }
+
+    private fun refreshPlaybackSpeedLabel() {
+        val speed = AppSettings.playbackSpeed
+        npSpeedBtn.text = if (speed == 1.0f) "1x" else "${speed}x".replace(".0x", "x")
+    }
+
+    private fun cycleRepeatMode() {
+        val controller = mediaController ?: return
+        val next = when (controller.repeatMode) {
+            Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+            Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+            else -> Player.REPEAT_MODE_OFF
+        }
+        controller.repeatMode = next
+        AppSettings.setRepeatMode(next)
+        refreshRepeatModeIcon()
+    }
+
+    private fun refreshRepeatModeIcon() {
+        val mode = mediaController?.repeatMode ?: AppSettings.repeatMode
+        val (icon, tint) = when (mode) {
+            Player.REPEAT_MODE_ONE -> R.drawable.ic_repeat_one to colorOf(R.color.accent)
+            Player.REPEAT_MODE_ALL -> R.drawable.ic_repeat to colorOf(R.color.accent)
+            else -> R.drawable.ic_repeat to colorOf(R.color.text_muted)
+        }
+        npRepeatBtn.setImageResource(icon)
+        npRepeatBtn.setColorFilter(tint)
     }
 
     private fun wireSettingsScreen() {
@@ -1985,13 +2234,20 @@ class MainActivity : AppCompatActivity() {
         switchSmartShuffle.isChecked = AppSettings.smartShuffleEnabled
         switchSkipSilence.isChecked = AppSettings.skipSilenceEnabled
         switchCrossfade.isChecked = AppSettings.crossfadeEnabled
+        switchWifiOnlyDownloads.isChecked = AppSettings.wifiOnlyDownloads
+        refreshCrossfadeDurationLabel()
 
         switchDataSaver.setOnCheckedChangeListener { _, isChecked -> AppSettings.setDataSaverEnabled(isChecked) }
         switchSkipSilence.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setSkipSilenceEnabled(isChecked)
-            sendPlaybackSettingUpdate()
+            sendSkipSilenceUpdate()
         }
-        switchCrossfade.setOnCheckedChangeListener { _, isChecked -> AppSettings.setCrossfadeEnabled(isChecked) }
+        switchCrossfade.setOnCheckedChangeListener { _, isChecked ->
+            AppSettings.setCrossfadeEnabled(isChecked)
+            sendCrossfadeEnabledUpdate()
+        }
+        settingsCrossfadeDurationRow.setOnClickListener { showCrossfadeDurationDialog() }
+        switchWifiOnlyDownloads.setOnCheckedChangeListener { _, isChecked -> AppSettings.setWifiOnlyDownloads(isChecked) }
         switchKeepScreenOn.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setKeepScreenOnEnabled(isChecked); applyKeepScreenOn()
         }
@@ -2075,6 +2331,9 @@ class MainActivity : AppCompatActivity() {
                 refreshPlayPauseIcons(mediaController?.isPlaying == true)
                 refreshQueueList()
                 refreshSmartShuffleIcon()
+                refreshRepeatModeIcon()
+                refreshPlaybackSpeedLabel()
+                restoreQueueSnapshotIfNeeded()
 
                 pendingTrack?.let { track -> pendingTrack = null; playTrack(track) }
 
@@ -2095,6 +2354,7 @@ class MainActivity : AppCompatActivity() {
         if (item == null) {
             npTrackTitle.text = "Nothing playing"
             npTrackArtist.text = "Search for a song to begin"
+            npAlbumContext.text = "REO Music"
             miniTitle.text = "Nothing playing"
             miniArtist.text = ""
             npAlbumArt.setImageDrawable(null)
@@ -2107,6 +2367,7 @@ class MainActivity : AppCompatActivity() {
 
         npTrackTitle.text = title
         npTrackArtist.text = artist
+        npAlbumContext.text = item.mediaMetadata.albumTitle?.toString()?.takeIf { it.isNotBlank() } ?: "REO Music"
         miniTitle.text = title
         miniArtist.text = artist
 
@@ -2282,12 +2543,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        persistQueueSnapshot()
         uiHandler.removeCallbacks(tickRunnable)
         lyricsHandler.removeCallbacksAndMessages(null)
         super.onPause()
     }
 
     override fun onDestroy() {
+        persistQueueSnapshot()
+        searchDebounceJob?.cancel()
+        searchJob?.cancel()
         uiHandler.removeCallbacks(tickRunnable)
         mediaController?.removeListener(playerListener)
         FavoritesStore.removeListener(::onFavoritesChanged)

@@ -25,11 +25,18 @@ jobs:
         with:
           gradle-version: '8.13'
 
-      - name: Build Debug APK
-        run: gradle :app:assembleDebug
+      - name: Build debug and release APKs
+        run: gradle :app:assembleDebug :app:assembleRelease
 
-      - name: Upload APK
+      - name: Package source
+        run: |
+          zip -qr REO-Music-3.0.0.zip . -x '.git/*' 'app/build/*'
+
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: REO-Music-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: REO-Music-3.0.0
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            app/build/outputs/apk/release/app-release-unsigned.apk
+            REO-Music-3.0.0.zip

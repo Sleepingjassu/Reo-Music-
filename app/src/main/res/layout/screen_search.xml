@@ -64,6 +64,15 @@
             android:imeOptions="actionSearch"
             android:inputType="text" />
         <ImageButton
+            android:id="@+id/search_voice_button"
+            android:layout_width="42dp"
+            android:layout_height="42dp"
+            android:background="@drawable/ripple_circle_ghost"
+            android:src="@drawable/ic_mic"
+            android:tint="@color/text_muted"
+            android:padding="11dp"
+            android:contentDescription="Voice search" />
+        <ImageButton
             android:id="@+id/search_button"
             android:layout_width="42dp"
             android:layout_height="42dp"

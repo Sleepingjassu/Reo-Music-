@@ -1,21 +1,19 @@
-# REO Music
+# REO Music 3.0.0
 
-A lightweight YouTube Music-style Android music client built around Media3, NewPipe Extractor and Coil.
+REO Music 3.0.0 is a local-first, single-device music client built around Media3, NewPipe Extractor and Coil. It keeps one listener's playback, recommendations, likes, playlists, history, downloads and cache on the device. There are no accounts, cloud profiles or REO user databases.
 
-## What's in this revision
+## 3.0.0 upgrade
 
-- Media3 background playback through `MediaSessionService`
-- Gapless playlist transitions supported by Media3's queue engine
-- Skip-silence playback setting
-- Smart disk caching and explicit offline downloads
-- Lock-screen / notification media controls through MediaSession
-- Swipe-down now-playing sheet and swipe-left/right track gestures
-- LRCLIB synced lyrics with animated line + estimated word highlighting
-- Material 3 dynamic colors on Android 12+
-- Cleaner YouTube Music-inspired home feed
-- Local personalized recommendations using listening history and related tracks
-- Robust YouTube artwork fallback using `i.ytimg.com`
-- Release build configuration and GitHub Actions APK builds
+- Premium YouTube Music-inspired Now Playing sheet with a real album-art card, clean metadata hierarchy and a numbered Up Next section.
+- Removed the obsolete decorative player line/handle artifact completely.
+- Up Next preview expanded to 20 tracks; smart queue look-ahead expanded to 30 candidates.
+- Large queue support remains lazy and editable through the full queue screen.
+- Search now has local history, debounced queries and voice-search entry.
+- Home discovery uses additional local-affinity and provider discovery rows.
+- Existing Media3 background playback, gapless queue playback, skip-silence, optional dual-player crossfade, downloads, cache, lyrics, equalizer and local recommendation signals are preserved.
+- Artwork loading keeps provider artwork first and falls back to the YouTube thumbnail endpoint when necessary.
+- Gesture interactions include swipe navigation, long-press track actions, double-tap like/play controls and haptic feedback.
+- Material 3 dynamic theming, local settings and single-listener privacy remain the foundation.
 
 ## Recommendation model
 
@@ -23,11 +21,11 @@ REO's current recommendations are local-first. It uses recent listening history,
 
 ## Important playback note
 
-Media3 provides gapless playlist playback and skip-silence. A true overlapping two-player crossfade requires a dedicated audio mixer/dual-player layer. The current optional "Smooth transitions" setting uses a short transition fade-in rather than falsely claiming a true crossfade. That layer should be replaced by a dedicated mixer before a commercial production launch.
+REO 3.0.0 keeps the dedicated dual-player crossfade engine in the playback service. It arms the next media item before the current item ends and crossfades the two real players, while Media3 continues to own the primary session queue.
 
 ## Build
 
-The repository includes a GitHub Actions workflow that builds `:app:assembleDebug` on Ubuntu with Java 17 and Gradle 8.13.
+The repository includes a GitHub Actions workflow that builds debug and unsigned release APKs on Ubuntu with Java 17 and Gradle 8.13, then packages the 3.0.0 source tree as an artifact.
 
 ## REO Music 2.0.0 — Big UI/Playback Upgrade
 
