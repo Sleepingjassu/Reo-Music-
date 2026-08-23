@@ -26,6 +26,7 @@ import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import com.google.android.material.color.DynamicColors
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
@@ -161,6 +162,22 @@ class MainActivity : AppCompatActivity() {
     private var searchDebounceJob: Job? = null
     private var searchJob: Job? = null
 
+    private val voiceSearchLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val query = result.data
+                ?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)
+                ?.firstOrNull()
+                .orEmpty()
+            if (query.isNotBlank()) {
+                searchInput.setText(query)
+                searchInput.setSelection(query.length)
+                search(query)
+            }
+        }
+    }
+
     // Library screen
     private lateinit var libraryLikedRow: View
     private lateinit var libraryLikedCount: TextView
@@ -209,6 +226,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var settingsCrossfadeDurationRow: View
     private lateinit var settingsCrossfadeDuration: TextView
     private lateinit var switchWifiOnlyDownloads: Switch
+    private lateinit var switchDynamicColor: Switch
+    private lateinit var switchHaptics: Switch
+    private lateinit var switchReducedMotion: Switch
+    private lateinit var switchPersistQueue: Switch
+    private lateinit var switchStartupResume: Switch
+    private lateinit var switchAutoCleanup: Switch
     private lateinit var themeOptionSystem: TextView
     private lateinit var themeOptionLight: TextView
     private lateinit var themeOptionDark: TextView
@@ -307,10 +330,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
 
         AppSettings.init(this)
+        LocalFeatureStore.init(this)
         applyThemeMode(AppSettings.themeMode)
 
         super.onCreate(savedInstanceState)
-        if (Build.VERSION.SDK_INT >= 31) DynamicColors.applyToActivityIfAvailable(this)
+        if (Build.VERSION.SDK_INT >= 31 && LocalFeatureStore.dynamicColor) DynamicColors.applyToActivityIfAvailable(this)
 
         PlayHistoryStore.init(this)
         PlaybackSignalStore.init(this)
@@ -326,6 +350,7 @@ class MainActivity : AppCompatActivity() {
         (screenSearch as? android.widget.ScrollView)?.isVerticalScrollBarEnabled = false
         (screenLibrary as? android.widget.ScrollView)?.isVerticalScrollBarEnabled = false
         wireBottomNav()
+        installBackNavigation()
         wireHomeShortcuts()
         wireNowPlaying()
         wireSearchScreen()
@@ -501,6 +526,12 @@ class MainActivity : AppCompatActivity() {
         settingsCrossfadeDurationRow = findViewById(R.id.settings_crossfade_duration_row)
         settingsCrossfadeDuration = findViewById(R.id.settings_crossfade_duration)
         switchWifiOnlyDownloads = findViewById(R.id.switch_wifi_only_downloads)
+        switchDynamicColor = findViewById(R.id.switch_dynamic_color)
+        switchHaptics = findViewById(R.id.switch_haptics)
+        switchReducedMotion = findViewById(R.id.switch_reduced_motion)
+        switchPersistQueue = findViewById(R.id.switch_persist_queue)
+        switchStartupResume = findViewById(R.id.switch_startup_resume)
+        switchAutoCleanup = findViewById(R.id.switch_auto_cleanup)
         themeOptionSystem = findViewById(R.id.theme_option_system)
         themeOptionLight = findViewById(R.id.theme_option_light)
         themeOptionDark = findViewById(R.id.theme_option_dark)
@@ -683,13 +714,13 @@ class MainActivity : AppCompatActivity() {
                 if (abs(diffX) > 120f && abs(velocityX) > 300f && abs(diffX) > abs(diffY)) {
                     if (diffX < 0f) mediaController?.seekToNextMediaItem()
                     else mediaController?.seekToPreviousMediaItem()
-                    npArtGestureArea.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                    if (LocalFeatureStore.haptics) npArtGestureArea.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                     return true
                 }
 
                 if (abs(diffY) > 150f && abs(velocityY) > 300f && abs(diffY) > abs(diffX)) {
                     if (diffY < 0f) openLyrics() else closeNowPlaying()
-                    npArtGestureArea.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                    if (LocalFeatureStore.haptics) npArtGestureArea.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                     return true
                 }
 
@@ -715,7 +746,7 @@ class MainActivity : AppCompatActivity() {
 
         nowPlayingOverlay.animate()
             .translationY(0f)
-            .setDuration(220)
+            .setDuration(if (LocalFeatureStore.reducedMotion || !LocalFeatureStore.animations) 0L else 220L)
             .setInterpolator(DecelerateInterpolator())
             .start()
 
@@ -732,7 +763,7 @@ class MainActivity : AppCompatActivity() {
 
         nowPlayingOverlay.animate()
             .translationY(nowPlayingOverlay.height.toFloat())
-            .setDuration(200)
+            .setDuration(if (LocalFeatureStore.reducedMotion || !LocalFeatureStore.animations) 0L else 200L)
             .withEndAction {
                 nowPlayingOverlay.visibility = View.GONE
                 nowPlayingOverlay.translationY = 0f
@@ -742,15 +773,22 @@ class MainActivity : AppCompatActivity() {
         updateMiniPlayerVisibility()
     }
 
-    @Deprecated("Deprecated in Java")
-    override fun onBackPressed() {
-        when {
-            lyricsOverlay.visibility == View.VISIBLE -> closeLyrics()
-            equalizerOverlay.visibility == View.VISIBLE -> closeEqualizer()
-            listOverlay.visibility == View.VISIBLE -> closeListScreen()
-            isNowPlayingOpen -> closeNowPlaying()
-            else -> super.onBackPressed()
-        }
+    private fun installBackNavigation() {
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                when {
+                    lyricsOverlay.visibility == View.VISIBLE -> closeLyrics()
+                    equalizerOverlay.visibility == View.VISIBLE -> closeEqualizer()
+                    listOverlay.visibility == View.VISIBLE -> closeListScreen()
+                    isNowPlayingOpen -> closeNowPlaying()
+                    else -> {
+                        isEnabled = false
+                        onBackPressedDispatcher.onBackPressed()
+                        isEnabled = true
+                    }
+                }
+            }
+        })
     }
 
     private fun updateMiniPlayerVisibility() {
@@ -789,7 +827,7 @@ class MainActivity : AppCompatActivity() {
                 if (abs(diffX) > 90f && abs(velocityX) > 250f && abs(diffX) > abs(diffY)) {
                     if (diffX < 0f) mediaController?.seekToNextMediaItem()
                     else mediaController?.seekToPreviousMediaItem()
-                    miniPlayer.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                    if (LocalFeatureStore.haptics) miniPlayer.performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
                     return true
                 }
                 if (abs(diffY) > 90f && abs(velocityY) > 250f && abs(diffY) > abs(diffX)) {
@@ -1034,22 +1072,9 @@ class MainActivity : AppCompatActivity() {
                 putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Search REO Music")
             }
-            startActivityForResult(intent, 3010)
+            voiceSearchLauncher.launch(intent)
         } catch (_: Exception) {
             Toast.makeText(this, "Voice search isn't available on this device", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    @Deprecated("Deprecated in Java")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode == 3010 && resultCode == RESULT_OK) {
-            val query = data?.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS)?.firstOrNull().orEmpty()
-            if (query.isNotBlank()) {
-                searchInput.setText(query)
-                searchInput.setSelection(query.length)
-                search(query)
-            }
         }
     }
 
@@ -1944,6 +1969,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun persistQueueSnapshot() {
+        if (!LocalFeatureStore.persistQueue) return
         val controller = mediaController ?: return
         val tracks = currentQueueAsTracks()
         if (tracks.isNotEmpty()) {
@@ -2235,6 +2261,12 @@ class MainActivity : AppCompatActivity() {
         switchSkipSilence.isChecked = AppSettings.skipSilenceEnabled
         switchCrossfade.isChecked = AppSettings.crossfadeEnabled
         switchWifiOnlyDownloads.isChecked = AppSettings.wifiOnlyDownloads
+        switchDynamicColor.isChecked = LocalFeatureStore.dynamicColor
+        switchHaptics.isChecked = LocalFeatureStore.haptics
+        switchReducedMotion.isChecked = LocalFeatureStore.reducedMotion
+        switchPersistQueue.isChecked = LocalFeatureStore.persistQueue
+        switchStartupResume.isChecked = LocalFeatureStore.startupResume
+        switchAutoCleanup.isChecked = LocalFeatureStore.autoCleanup
         refreshCrossfadeDurationLabel()
 
         switchDataSaver.setOnCheckedChangeListener { _, isChecked -> AppSettings.setDataSaverEnabled(isChecked) }
@@ -2248,6 +2280,15 @@ class MainActivity : AppCompatActivity() {
         }
         settingsCrossfadeDurationRow.setOnClickListener { showCrossfadeDurationDialog() }
         switchWifiOnlyDownloads.setOnCheckedChangeListener { _, isChecked -> AppSettings.setWifiOnlyDownloads(isChecked) }
+        switchDynamicColor.setOnCheckedChangeListener { _, isChecked ->
+            LocalFeatureStore.setDynamicColor(isChecked)
+            recreate()
+        }
+        switchHaptics.setOnCheckedChangeListener { _, isChecked -> LocalFeatureStore.setHaptics(isChecked) }
+        switchReducedMotion.setOnCheckedChangeListener { _, isChecked -> LocalFeatureStore.setReducedMotion(isChecked) }
+        switchPersistQueue.setOnCheckedChangeListener { _, isChecked -> LocalFeatureStore.setPersistQueue(isChecked) }
+        switchStartupResume.setOnCheckedChangeListener { _, isChecked -> LocalFeatureStore.setStartupResume(isChecked) }
+        switchAutoCleanup.setOnCheckedChangeListener { _, isChecked -> LocalFeatureStore.setAutoCleanup(isChecked) }
         switchKeepScreenOn.setOnCheckedChangeListener { _, isChecked ->
             AppSettings.setKeepScreenOnEnabled(isChecked); applyKeepScreenOn()
         }
@@ -2270,7 +2311,8 @@ class MainActivity : AppCompatActivity() {
                 .setTitle("Clear playback cache?")
                 .setMessage("This frees disk space used for instant replays. Downloaded songs in your Library are kept.")
                 .setPositiveButton("Clear") { _, _ ->
-                    Toast.makeText(this, "Cache cleared", Toast.LENGTH_SHORT).show()
+                    OfflineCacheManager.clearCache()
+                    Toast.makeText(this, "Playback cache cleared", Toast.LENGTH_SHORT).show()
                     refreshCacheSizeLabel()
                 }
                 .setNegativeButton("Cancel", null)
@@ -2370,6 +2412,7 @@ class MainActivity : AppCompatActivity() {
         npAlbumContext.text = item.mediaMetadata.albumTitle?.toString()?.takeIf { it.isNotBlank() } ?: "REO Music"
         miniTitle.text = title
         miniArtist.text = artist
+        ReoNowPlayingWidget.publish(this, title, artist)
 
         val artworkUri = item.mediaMetadata.artworkUri
         val artwork = artworkUri?.toString().orEmpty().ifBlank {
@@ -2539,6 +2582,7 @@ class MainActivity : AppCompatActivity() {
             refreshPlayPauseIcons(mediaController?.isPlaying == true)
         }
         if (currentTab == Tab.HOME) loadHomeContent()
+        if (LocalFeatureStore.startupResume) restoreQueueSnapshotIfNeeded()
         if (currentTab == Tab.LIBRARY) loadLibraryContent()
     }
 

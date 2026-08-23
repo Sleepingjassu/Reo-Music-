@@ -154,4 +154,15 @@ object OfflineCacheManager {
     fun currentCacheSizeBytes(): Long {
         return cache?.cacheSpace ?: 0L
     }
+
+    @Synchronized
+    fun clearCache() {
+        val simpleCache = cache ?: return
+        try {
+            val keys = simpleCache.keys.toList()
+            keys.forEach { key -> simpleCache.removeResource(key) }
+        } catch (_: Exception) {
+            // Cache cleanup is best-effort and must never take playback down.
+        }
+    }
 }

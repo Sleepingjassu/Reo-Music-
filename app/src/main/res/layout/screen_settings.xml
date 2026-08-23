@@ -346,6 +346,69 @@
 
         </LinearLayout>
 
+        <!-- Personalization / UX -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="EXPERIENCE"
+            android:textColor="@color/text_faint"
+            android:textSize="11sp"
+            android:letterSpacing="0.14"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded"
+            android:padding="16dp"
+            android:layout_marginBottom="10dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Dynamic color" android:textColor="@color/text_primary" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Use Android's dynamic palette when supported" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Switch android:id="@+id/switch_dynamic_color" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="end" android:thumbTint="@color/accent" android:trackTint="@color/surface_3" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded" android:padding="16dp" android:layout_marginBottom="10dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Haptic feedback" android:textColor="@color/text_primary" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Subtle feedback for player gestures" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Switch android:id="@+id/switch_haptics" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="end" android:thumbTint="@color/accent" android:trackTint="@color/surface_3" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded" android:padding="16dp" android:layout_marginBottom="10dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Reduced motion" android:textColor="@color/text_primary" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Minimize UI animation for accessibility and performance" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Switch android:id="@+id/switch_reduced_motion" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="end" android:thumbTint="@color/accent" android:trackTint="@color/surface_3" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded" android:padding="16dp" android:layout_marginBottom="10dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Remember queue" android:textColor="@color/text_primary" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Keep your current queue and position on this device" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Switch android:id="@+id/switch_persist_queue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="end" android:thumbTint="@color/accent" android:trackTint="@color/surface_3" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded" android:padding="16dp" android:layout_marginBottom="10dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Resume on startup" android:textColor="@color/text_primary" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Restore the last local queue when REO reconnects" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Switch android:id="@+id/switch_startup_resume" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="end" android:thumbTint="@color/accent" android:trackTint="@color/surface_3" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+            android:background="@drawable/bg_card_rounded" android:padding="16dp" android:layout_marginBottom="10dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Automatic cache cleanup" android:textColor="@color/text_primary" android:textSize="15sp" android:fontFamily="sans-serif-medium" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="Keep temporary playback data bounded; downloads are protected" android:textColor="@color/text_muted" android:textSize="12sp" />
+            <Switch android:id="@+id/switch_auto_cleanup" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="end" android:thumbTint="@color/accent" android:trackTint="@color/surface_3" />
+        </LinearLayout>
+
         <!-- Storage -->
         <LinearLayout
             android:layout_width="match_parent"

@@ -51,3 +51,6 @@ This release is a large interface pass inspired by the interaction patterns of m
 - Expanded smart queue look-ahead to 20 candidates and queue preview to 15 upcoming tracks.
 - Improved selected navigation states and touch targets.
 - Kept Media3 playback, downloads, lyrics, cache and provider architecture intact.
+
+## REO Music 3.0.0
+See `REO_3.0_FEATURES.md` for the full local-listener feature set.
