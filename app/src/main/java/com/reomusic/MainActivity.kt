@@ -413,16 +413,6 @@ class MainActivity : AppCompatActivity() {
         npQueueContainer = findViewById(R.id.np_queue_container)
         npQueueEmpty = findViewById(R.id.np_queue_empty)
 
-        npArtGestureArea.addOnLayoutChangeListener { view, left, top, right, bottom, _, _, _, _ ->
-            val width = right - left
-            val height = bottom - top
-            if (width > 0 && width != height) {
-                val params = view.layoutParams
-                params.height = width
-                view.layoutParams = params
-            }
-        }
-
         homeGreeting = findViewById(R.id.home_greeting)
         homeRecentSection = findViewById(R.id.home_recent_section)
         homeRecentContainer = findViewById(R.id.home_recent_container)
