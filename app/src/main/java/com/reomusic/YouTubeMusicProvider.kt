@@ -59,6 +59,7 @@ class YouTubeMusicProvider : MusicProvider {
                 extractor.initialPage.items
                     .filterIsInstance<StreamInfoItem>()
                     .mapNotNull(::toTrack)
+                    .distinctBy { it.videoId }
 
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -94,6 +95,8 @@ class YouTubeMusicProvider : MusicProvider {
                         .orEmpty()
                         .filterIsInstance<StreamInfoItem>()
                         .mapNotNull(::toTrack)
+                        .filter(::isMusicCandidate)
+                        .distinctBy { it.videoId }
                         // Never recommend the track that's already playing
                         .filter { it.videoId != videoId }
 
@@ -141,6 +144,17 @@ class YouTubeMusicProvider : MusicProvider {
         } else {
             candidates.maxByOrNull { stream -> stream.averageBitrate }?.content
         }
+    }
+
+    private fun isMusicCandidate(track: MusicTrack): Boolean {
+        if (track.videoId.isBlank() || track.durationSeconds !in 20L..900L) return false
+        val title = track.title.lowercase()
+        val blocked = listOf(
+            "official video", "music video", "visualizer", "lyric video", "lyrics",
+            "official trailer", "trailer", "teaser", "reaction", "interview", "podcast",
+            "vlog", "gameplay", "news", "shorts", "full movie", "episode", "behind the scenes"
+        )
+        return blocked.none { title.contains(it) }
     }
 
     private fun toTrack(item: StreamInfoItem): MusicTrack? {

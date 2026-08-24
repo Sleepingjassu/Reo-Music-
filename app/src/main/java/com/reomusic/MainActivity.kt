@@ -13,6 +13,8 @@ import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.Gravity
+import android.graphics.drawable.GradientDrawable
 import android.view.animation.DecelerateInterpolator
 import android.widget.EditText
 import android.widget.ImageButton
@@ -25,6 +27,7 @@ import android.text.SpannableStringBuilder
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import com.google.android.material.color.DynamicColors
+import com.google.android.material.bottomsheet.BottomSheetDialog
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,6 +53,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 private enum class Tab { HOME, SEARCH, LIBRARY, SETTINGS }
 private enum class ListMode { QUEUE, FAVORITES, HISTORY, DOWNLOADS, PLAYLIST }
@@ -57,6 +61,7 @@ private enum class SortField { DEFAULT, TITLE, ARTIST, DURATION }
 
 private const val MAX_QUEUE_LOOKAHEAD = 30
 private const val SMART_SHUFFLE_MIN_UPCOMING = 5
+private const val MAX_HOME_MADE_FOR_YOU = 8
 
 class MainActivity : AppCompatActivity() {
 
@@ -873,12 +878,11 @@ class MainActivity : AppCompatActivity() {
     )
 
     private fun loadHomeContent() {
-
         homeLoadJob?.cancel()
 
         homeGreeting.text = timeOfDayGreeting()
+        val recent = PlayHistoryStore.getRecent().distinctBy { it.videoId }
 
-        val recent = PlayHistoryStore.getRecent()
         homeHero.visibility = if (recent.isNotEmpty()) View.VISIBLE else View.GONE
         recent.firstOrNull()?.let { track ->
             homeHeroTitle.text = track.title
@@ -886,6 +890,7 @@ class MainActivity : AppCompatActivity() {
             loadArtwork(homeHeroArt, track)
             homeHeroPlay.setOnClickListener { playTrack(track) }
         }
+
         homeRecentContainer.removeAllViews()
         homePicksContainer.removeAllViews()
         homeDiscoverContainer.removeAllViews()
@@ -898,41 +903,53 @@ class MainActivity : AppCompatActivity() {
             homeRecentSection.visibility = View.VISIBLE
             homePicksSection.visibility = View.VISIBLE
             homePicksHeader.text = "Made for you"
-            recent.take(10).forEach { track -> addRecentCard(track) }
+            recent.take(10).forEach { addRecentCard(it) }
+
+            // Instant local-first recommendations. The home screen no longer
+            // waits for a provider request before showing its first row.
+            recent.drop(1).take(MAX_HOME_MADE_FOR_YOU).forEach {
+                addHomePickCard(homePicksContainer, it)
+            }
         }
 
         homeLoadJob = screenScope.launch {
+            // Fetch only the useful personalized sources, in parallel. This
+            // keeps Home responsive instead of serially waiting on 6 searches.
+            val seed = recent.firstOrNull()
+            val topArtist = PlaybackSignalStore.topArtists(1).firstOrNull()
 
-            if (recent.isNotEmpty()) {
-                val seedId = recent.first().videoId
-                val resolution = withContext(Dispatchers.IO) { musicProvider.resolveTrack(seedId) }
-                val ranked = PlaybackSignalStore.rankByAffinity(seedId, resolution?.relatedTracks.orEmpty())
-                ranked.take(10).forEach { track ->
-                    addHomePickCard(homePicksContainer, track)
-                }
+            val relatedDeferred = kotlinx.coroutines.async(Dispatchers.IO) {
+                seed?.let { musicProvider.resolveTrack(it.videoId)?.relatedTracks.orEmpty() }.orEmpty()
+            }
+            val artistDeferred = kotlinx.coroutines.async(Dispatchers.IO) {
+                topArtist?.let { musicProvider.search(it) }.orEmpty()
             }
 
-            // Personalized rows from whichever artists this device actually
-            // finishes listening to most (not just "last played").
-            val topArtists = PlaybackSignalStore.topArtists(2)
-            topArtists.forEach { artist ->
-                val tracks = withContext(Dispatchers.IO) { musicProvider.search(artist) }.take(10)
-                if (tracks.isNotEmpty()) {
-                    addDiscoverSection("More $artist", tracks)
+            val related = relatedDeferred.await()
+            val artistTracks = artistDeferred.await()
+            val localIds = recent.map { it.videoId }.toMutableSet()
+            val personalized = (PlaybackSignalStore.rankByAffinity(seed?.videoId, related) + artistTracks)
+                .filter { it.videoId.isNotBlank() }
+                .distinctBy { it.videoId }
+                .filter { localIds.add(it.videoId) }
+                .take(MAX_HOME_MADE_FOR_YOU)
+
+            personalized.forEach { addHomePickCard(homePicksContainer, it) }
+
+            // Small discovery footprint. Rows remain horizontal and are loaded
+            // concurrently, so Home does not become an endless vertical feed.
+            val discoveryQueries = homeDiscoverSeeds.shuffled().take(3)
+            val jobs = discoveryQueries.map { (query, label) ->
+                kotlinx.coroutines.async(Dispatchers.IO) {
+                    label to musicProvider.search(query).distinctBy { it.videoId }.take(8)
                 }
             }
-
-            // Always-on Spotify-style discovery rows, so the app never opens to a blank page.
-            var anyDiscoverLoaded = false
-            homeDiscoverSeeds.shuffled().take(6).forEach { (query, label) ->
-                val tracks = withContext(Dispatchers.IO) { musicProvider.search(query) }.take(10)
-                if (tracks.isNotEmpty()) {
-                    anyDiscoverLoaded = true
-                    addDiscoverSection(label, tracks)
-                }
+            jobs.forEach { deferred ->
+                val (label, tracks) = deferred.await()
+                if (tracks.isNotEmpty()) addDiscoverSection(label, tracks)
             }
 
-            if (!anyDiscoverLoaded && recent.isEmpty()) {
+            if (recent.isEmpty() && homeDiscoverContainer.childCount == 0) {
                 homeEmptyState.visibility = View.VISIBLE
             }
         }
@@ -949,6 +966,17 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun installLongPress(view: View, action: () -> Unit) {
+        view.isLongClickable = true
+        view.setOnLongClickListener {
+            if (LocalFeatureStore.haptics) {
+                it.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            }
+            action()
+            true
+        }
+    }
+
     private fun addHomePickCard(container: LinearLayout, track: MusicTrack) {
         val card = LayoutInflater.from(this).inflate(R.layout.item_home_pick, container, false)
         val art = card.findViewById<ImageView>(R.id.pick_art)
@@ -959,7 +987,7 @@ class MainActivity : AppCompatActivity() {
         artist.text = track.artist.ifBlank { "Unknown artist" }
         loadArtwork(art, track)
         card.setOnClickListener { playTrack(track) }
-        card.setOnLongClickListener { showTrackOptionsMenu(track); true }
+        installLongPress(card) { showTrackOptionsMenu(track) }
         more.setOnClickListener { showTrackOptionsMenu(track) }
         container.addView(card)
     }
@@ -981,7 +1009,7 @@ class MainActivity : AppCompatActivity() {
             loadArtwork(art, track)
 
             card.setOnClickListener { playTrack(track) }
-            card.setOnLongClickListener { showTrackOptionsMenu(track); true }
+            installLongPress(card) { showTrackOptionsMenu(track) }
             row.addView(card)
         }
 
@@ -1000,7 +1028,7 @@ class MainActivity : AppCompatActivity() {
         loadArtwork(art, track)
 
         card.setOnClickListener { playTrack(track) }
-        card.setOnLongClickListener { showTrackOptionsMenu(track); true }
+        installLongPress(card) { showTrackOptionsMenu(track) }
         homeRecentContainer.addView(card)
     }
 
@@ -1275,7 +1303,7 @@ class MainActivity : AppCompatActivity() {
 
         val onPlay = View.OnClickListener { playTrack(track) }
         item.setOnClickListener(onPlay)
-        item.setOnLongClickListener { showTrackOptionsMenu(track, onRemove, removeLabel); true }
+        installLongPress(item) { showTrackOptionsMenu(track, onRemove, removeLabel) }
         more.setOnClickListener { showTrackOptionsMenu(track, onRemove, removeLabel) }
 
         container.addView(item)
@@ -1294,42 +1322,128 @@ class MainActivity : AppCompatActivity() {
         val liked = FavoritesStore.isLiked(track.videoId)
         val downloaded = DownloadStore.isDownloaded(track.videoId)
 
-        val labels = mutableListOf<String>()
-        val actions = mutableListOf<() -> Unit>()
-
-        labels.add(if (liked) "Remove from Liked Songs" else "Add to Liked Songs")
-        actions.add { FavoritesStore.toggle(track) }
-
-        labels.add("Add to playlist")
-        actions.add { showAddToPlaylistDialog(track) }
-
-        labels.add("Play next")
-        actions.add { playTrackNext(track) }
-
-        labels.add("Add to queue")
-        actions.add { addTrackToQueue(track) }
-
-        if (downloaded) {
-            labels.add("Downloaded \u2713")
-            actions.add { Toast.makeText(this, "Already downloaded", Toast.LENGTH_SHORT).show() }
-        } else {
-            labels.add("Download")
-            actions.add { downloadTrack(track) {} }
+        val dialog = BottomSheetDialog(this)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(10), dp(20), dp(18))
+            background = GradientDrawable().apply {
+                cornerRadii = floatArrayOf(28f, 28f, 28f, 28f, 0f, 0f, 0f, 0f)
+                setColor(colorOf(R.color.surface_1))
+            }
         }
 
-        if (onRemove != null) {
-            labels.add(removeLabel)
-            actions.add(onRemove)
+        val handle = View(this).apply {
+            background = GradientDrawable().apply {
+                cornerRadius = dp(3).toFloat()
+                setColor(colorOf(R.color.text_muted))
+            }
+        }
+        root.addView(handle, LinearLayout.LayoutParams(dp(42), dp(4)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            bottomMargin = dp(12)
+        })
+
+        val artRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(14))
+        }
+        val art = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            background = getDrawable(R.drawable.bg_thumb_small)
+        }
+        loadArtwork(art, track)
+        artRow.addView(art, LinearLayout.LayoutParams(dp(56), dp(56)))
+        val meta = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), 0, 0, 0)
+        }
+        meta.addView(TextView(this).apply {
+            text = track.title
+            setTextColor(colorOf(R.color.text_primary))
+            textSize = 16f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            maxLines = 2
+        })
+        meta.addView(TextView(this).apply {
+            text = listOf(track.artist, track.album).filter { it.isNotBlank() }.joinToString(" • ")
+            setTextColor(colorOf(R.color.text_muted))
+            textSize = 12f
+            maxLines = 1
+        })
+        artRow.addView(meta, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(artRow)
+
+        fun addAction(label: String, icon: String = "") {
+            val row = TextView(this).apply {
+                text = if (icon.isBlank()) label else "$icon  $label"
+                setTextColor(colorOf(R.color.text_primary))
+                textSize = 15f
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(8), 0, dp(8), 0)
+                minHeight = dp(52)
+                isClickable = true
+                isFocusable = true
+                background = getDrawable(R.drawable.bg_card_rounded_pressed)
+            }
+            row.setOnClickListener {
+                dialog.dismiss()
+                when (label) {
+                    "Add to Liked Songs" -> { FavoritesStore.toggle(track); onFavoritesChanged() }
+                    "Remove from Liked Songs" -> { FavoritesStore.toggle(track); onFavoritesChanged() }
+                    "Add to playlist" -> showAddToPlaylistDialog(track)
+                    "Play next" -> playTrackNext(track)
+                    "Add to queue" -> addTrackToQueue(track)
+                    "Download" -> downloadTrack(track) {}
+                    "Downloaded" -> Toast.makeText(this, "Already downloaded", Toast.LENGTH_SHORT).show()
+                    removeLabel -> onRemove?.invoke()
+                }
+            }
+            root.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)).apply {
+                bottomMargin = dp(4)
+            })
         }
 
-        AlertDialog.Builder(this)
-            .setTitle(track.title)
-            .setItems(labels.toTypedArray()) { _, which -> actions[which].invoke() }
-            .show()
+        addAction(if (liked) "Remove from Liked Songs" else "Add to Liked Songs", "♡")
+        addAction("Add to playlist", "＋")
+        addAction("Play next", "▶")
+        addAction("Add to queue", "≡")
+        addAction(if (downloaded) "Downloaded" else "Download", "↓")
+        onRemove?.let { addAction(removeLabel, "×") }
+
+        dialog.setContentView(root)
+        dialog.show()
+    }
+
+    private fun queueIds(controller: MediaController): MutableSet<String> =
+        mutableSetOf<String>().apply {
+            for (i in 0 until controller.mediaItemCount) add(controller.getMediaItemAt(i).mediaId)
+        }
+
+    private fun queueContainsTrack(track: MusicTrack): Boolean {
+        val controller = mediaController ?: return false
+        return (0 until controller.mediaItemCount).any { controller.getMediaItemAt(it).mediaId == track.videoId }
+    }
+
+    private fun dedupeTracks(tracks: List<MusicTrack>): List<MusicTrack> =
+        tracks.filter { it.videoId.isNotBlank() }.distinctBy { it.videoId }
+
+    private fun cleanGeneratedTracks(tracks: List<MusicTrack>): List<MusicTrack> {
+        val seen = mutableSetOf<String>()
+        return tracks.filter {
+            val title = it.title.lowercase()
+            val blocked = listOf(
+                "official video", "music video", "visualizer", "lyric video", "lyrics",
+                "official trailer", "trailer", "teaser", "reaction", "interview", "podcast",
+                "vlog", "gameplay", "news", "shorts", "full movie", "episode", "behind the scenes"
+            ).any(title::contains)
+            it.videoId.isNotBlank() && it.durationSeconds in 20L..900L && !blocked && seen.add(it.videoId)
+        }
     }
 
     private fun playTrackNext(track: MusicTrack) {
         val controller = mediaController ?: return
+        if (queueContainsTrack(track)) { Toast.makeText(this, "Already in queue", Toast.LENGTH_SHORT).show(); return }
         screenScope.launch {
             val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(track.videoId) }
             if (streamUrl.isNullOrBlank()) {
@@ -1345,6 +1459,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun addTrackToQueue(track: MusicTrack) {
         val controller = mediaController ?: return
+        if (queueContainsTrack(track)) { Toast.makeText(this, "Already in queue", Toast.LENGTH_SHORT).show(); return }
         screenScope.launch {
             val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(track.videoId) }
             if (streamUrl.isNullOrBlank()) {
@@ -1689,6 +1804,16 @@ class MainActivity : AppCompatActivity() {
                 if (i != currentIndex) { controller.removeMediaItem(i); renderQueueListRefresh() }
             }
             row.setOnClickListener { controller.seekTo(i, 0L); controller.play() }
+            installLongPress(row) {
+                val track = MusicTrack(
+                    videoId = item.mediaId,
+                    title = displayTitle,
+                    artist = item.mediaMetadata.artist?.toString() ?: "",
+                    album = item.mediaMetadata.albumTitle?.toString() ?: "",
+                    thumbnailUrl = item.mediaMetadata.artworkUri?.toString() ?: ""
+                )
+                showTrackOptionsMenu(track)
+            }
 
             listContainer.addView(row)
         }
@@ -1784,29 +1909,64 @@ class MainActivity : AppCompatActivity() {
         }.start()
     }
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).roundToInt()
 
     // ---------------------------------------------------------------
     // Sleep timer
     // ---------------------------------------------------------------
 
     private fun showSleepTimerDialog() {
-        val options = arrayOf("15 minutes", "30 minutes", "45 minutes", "60 minutes", "End of current track", "Off")
-        AlertDialog.Builder(this)
-            .setTitle("Sleep timer")
-            .setItems(options) { _, which ->
-                val controller = mediaController ?: return@setItems
-                when (which) {
-                    0 -> sendSleepTimerDuration(controller, 15 * 60_000L)
-                    1 -> sendSleepTimerDuration(controller, 30 * 60_000L)
-                    2 -> sendSleepTimerDuration(controller, 45 * 60_000L)
-                    3 -> sendSleepTimerDuration(controller, 60 * 60_000L)
-                    4 -> controller.sendCustomCommand(SessionCommand(SleepTimerCommands.ACTION_SET_END_OF_TRACK, Bundle.EMPTY), Bundle.EMPTY)
-                    5 -> controller.sendCustomCommand(SessionCommand(SleepTimerCommands.ACTION_CANCEL, Bundle.EMPTY), Bundle.EMPTY)
-                }
-                Toast.makeText(this, options[which], Toast.LENGTH_SHORT).show()
+        val options = listOf(
+            "15 minutes" to 15 * 60_000L,
+            "30 minutes" to 30 * 60_000L,
+            "45 minutes" to 45 * 60_000L,
+            "60 minutes" to 60 * 60_000L,
+            "End of current track" to -1L,
+            "Off" to 0L
+        )
+        val dialog = BottomSheetDialog(this)
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(10), dp(20), dp(20))
+            background = GradientDrawable().apply {
+                cornerRadii = floatArrayOf(28f,28f,28f,28f,0f,0f,0f,0f)
+                setColor(colorOf(R.color.surface_1))
             }
-            .show()
+        }
+        val title = TextView(this).apply {
+            text = "Sleep timer"
+            setTextColor(colorOf(R.color.text_primary))
+            textSize = 20f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            setPadding(dp(4), dp(8), dp(4), dp(14))
+        }
+        root.addView(title)
+        options.forEach { (label, duration) ->
+            val row = TextView(this).apply {
+                text = label
+                setTextColor(colorOf(R.color.text_primary))
+                textSize = 15f
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(8), 0, dp(8), 0)
+                minHeight = dp(52)
+                isClickable = true
+                isFocusable = true
+                background = getDrawable(R.drawable.bg_card_rounded_pressed)
+            }
+            row.setOnClickListener {
+                val controller = mediaController ?: return@setOnClickListener
+                when {
+                    duration > 0 -> sendSleepTimerDuration(controller, duration)
+                    duration == -1L -> controller.sendCustomCommand(SessionCommand(SleepTimerCommands.ACTION_SET_END_OF_TRACK, Bundle.EMPTY), Bundle.EMPTY)
+                    else -> controller.sendCustomCommand(SessionCommand(SleepTimerCommands.ACTION_CANCEL, Bundle.EMPTY), Bundle.EMPTY)
+                }
+                dialog.dismiss()
+                Toast.makeText(this, label, Toast.LENGTH_SHORT).show()
+            }
+            root.addView(row, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(52)).apply { bottomMargin = dp(4) })
+        }
+        dialog.setContentView(root)
+        dialog.show()
     }
 
     private fun sendSleepTimerDuration(controller: MediaController, durationMs: Long) {
@@ -1880,7 +2040,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun buildUpNextQueue(seed: MusicTrack, related: List<MusicTrack>) {
         val controller = mediaController ?: return
-        val candidates = related.filter { it.videoId != seed.videoId }.take(MAX_QUEUE_LOOKAHEAD)
+        val existingIds = queueIds(controller)
+        val candidates = cleanGeneratedTracks(related)
+            .filter { it.videoId != seed.videoId && !existingIds.contains(it.videoId) }
+            .take(MAX_QUEUE_LOOKAHEAD)
 
         if (candidates.isEmpty()) {
             npQueueEmpty.text = "No related tracks found"
@@ -1889,10 +2052,12 @@ class MainActivity : AppCompatActivity() {
 
         queueBuildJob = screenScope.launch {
             var addedAny = false
+            val seenIds = queueIds(controller)
             for (candidate in candidates) {
                 val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(candidate.videoId) }
                 if (streamUrl.isNullOrBlank()) continue
                 if (mediaController !== controller) return@launch
+                if (!seenIds.add(candidate.videoId)) continue
 
                 controller.addMediaItem(buildMediaItem(candidate, streamUrl))
                 addedAny = true
@@ -1905,7 +2070,7 @@ class MainActivity : AppCompatActivity() {
     /** Used by Play all / Shuffle on playlists, favorites, downloads, and history. */
     private fun playTrackListDirectly(tracks: List<MusicTrack>, shuffled: Boolean) {
         val controller = mediaController ?: return
-        val ordered = if (shuffled) tracks.shuffled() else tracks
+        val ordered = dedupeTracks(if (shuffled) tracks.shuffled() else tracks)
         val first = ordered.firstOrNull() ?: return
         val rest = ordered.drop(1)
 
@@ -1941,7 +2106,10 @@ class MainActivity : AppCompatActivity() {
 
         queueBuildJob = screenScope.launch {
             val resolution = withContext(Dispatchers.IO) { musicProvider.resolveTrack(seedId) }
-            val extras = resolution?.relatedTracks.orEmpty().shuffled().take(MAX_QUEUE_LOOKAHEAD)
+            val seenIds = queueIds(controller)
+            val extras = cleanGeneratedTracks(resolution?.relatedTracks.orEmpty().shuffled())
+                .filter { seenIds.add(it.videoId) }
+                .take(MAX_QUEUE_LOOKAHEAD)
             for (candidate in extras) {
                 val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(candidate.videoId) }
                 if (streamUrl.isNullOrBlank()) continue
@@ -1983,7 +2151,7 @@ class MainActivity : AppCompatActivity() {
         val snapshot = QueueStore.load(this) ?: return
         screenScope.launch {
             val restored = mutableListOf<MediaItem>()
-            for (track in snapshot.tracks.take(50)) {
+            for (track in dedupeTracks(snapshot.tracks).take(50)) {
                 val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(track.videoId) }
                 if (!streamUrl.isNullOrBlank()) restored += buildMediaItem(track, streamUrl)
             }
@@ -1996,8 +2164,23 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun dedupeControllerQueue(controller: MediaController) {
+        if (controller.mediaItemCount < 2) return
+        val currentIndex = controller.currentMediaItemIndex
+        val seen = mutableSetOf<String>()
+        if (currentIndex in 0 until controller.mediaItemCount) {
+            seen.add(controller.getMediaItemAt(currentIndex).mediaId)
+        }
+        for (i in controller.mediaItemCount - 1 downTo 0) {
+            if (i == currentIndex) continue
+            val id = controller.getMediaItemAt(i).mediaId
+            if (id.isBlank() || !seen.add(id)) controller.removeMediaItem(i)
+        }
+    }
+
     private fun refreshQueueList() {
         val controller = mediaController ?: return
+        dedupeControllerQueue(controller)
         npQueueContainer.removeAllViews()
 
         val count = controller.mediaItemCount
@@ -2010,8 +2193,12 @@ class MainActivity : AppCompatActivity() {
             npQueueEmpty.visibility = View.VISIBLE
         } else {
             npQueueEmpty.visibility = View.GONE
-            for (i in (currentIndex + 1) until minOf(count, currentIndex + 1 + 20)) {
-                addQueuePreviewRow(controller.getMediaItemAt(i), i)
+            val seenPreview = mutableSetOf<String>()
+            for (i in (currentIndex + 1) until count) {
+                val item = controller.getMediaItemAt(i)
+                if (item.mediaId.isBlank() || !seenPreview.add(item.mediaId)) continue
+                addQueuePreviewRow(item, i)
+                if (seenPreview.size >= 20) break
             }
         }
 
@@ -2042,7 +2229,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         row.setOnClickListener { mediaController?.seekTo(index, 0L); mediaController?.play() }
-        row.setOnLongClickListener {
+        installLongPress(row) {
             val track = MusicTrack(
                 videoId = item.mediaId,
                 title = item.mediaMetadata.title?.toString() ?: "Unknown title",
@@ -2051,7 +2238,6 @@ class MainActivity : AppCompatActivity() {
                 thumbnailUrl = item.mediaMetadata.artworkUri?.toString() ?: ""
             )
             showTrackOptionsMenu(track)
-            true
         }
         npQueueContainer.addView(row)
     }
