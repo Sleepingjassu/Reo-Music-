@@ -46,6 +46,8 @@ import com.google.common.util.concurrent.MoreExecutors
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -258,6 +260,7 @@ class MainActivity : AppCompatActivity() {
     private var playJob: Job? = null
     private var queueBuildJob: Job? = null
     private var homeLoadJob: Job? = null
+    private val homePickIds = mutableSetOf<String>()
     private var downloadJob: Job? = null
     private var lyricsJob: Job? = null
     private var lyricsResult: LyricsResult? = null
@@ -893,6 +896,7 @@ class MainActivity : AppCompatActivity() {
 
         homeRecentContainer.removeAllViews()
         homePicksContainer.removeAllViews()
+        homePickIds.clear()
         homeDiscoverContainer.removeAllViews()
         homeEmptyState.visibility = View.GONE
 
@@ -918,35 +922,39 @@ class MainActivity : AppCompatActivity() {
             val seed = recent.firstOrNull()
             val topArtist = PlaybackSignalStore.topArtists(1).firstOrNull()
 
-            val relatedDeferred = kotlinx.coroutines.async(Dispatchers.IO) {
-                seed?.let { musicProvider.resolveTrack(it.videoId)?.relatedTracks.orEmpty() }.orEmpty()
-            }
-            val artistDeferred = kotlinx.coroutines.async(Dispatchers.IO) {
-                topArtist?.let { musicProvider.search(it) }.orEmpty()
-            }
-
-            val related = relatedDeferred.await()
-            val artistTracks = artistDeferred.await()
-            val localIds = recent.map { it.videoId }.toMutableSet()
-            val personalized = (PlaybackSignalStore.rankByAffinity(seed?.videoId, related) + artistTracks)
-                .filter { it.videoId.isNotBlank() }
-                .distinctBy { it.videoId }
-                .filter { localIds.add(it.videoId) }
-                .take(MAX_HOME_MADE_FOR_YOU)
-
-            personalized.forEach { addHomePickCard(homePicksContainer, it) }
-
-            // Small discovery footprint. Rows remain horizontal and are loaded
-            // concurrently, so Home does not become an endless vertical feed.
-            val discoveryQueries = homeDiscoverSeeds.shuffled().take(3)
-            val jobs = discoveryQueries.map { (query, label) ->
-                kotlinx.coroutines.async(Dispatchers.IO) {
-                    label to musicProvider.search(query).distinctBy { it.videoId }.take(8)
+            // async is a CoroutineScope extension. Keep all child requests inside
+            // coroutineScope so cancellation of homeLoadJob also cancels them.
+            coroutineScope {
+                val relatedDeferred = async(Dispatchers.IO) {
+                    seed?.let { musicProvider.resolveTrack(it.videoId)?.relatedTracks.orEmpty() }.orEmpty()
                 }
-            }
-            jobs.forEach { deferred ->
-                val (label, tracks) = deferred.await()
-                if (tracks.isNotEmpty()) addDiscoverSection(label, tracks)
+                val artistDeferred = async(Dispatchers.IO) {
+                    topArtist?.let { musicProvider.search(it) }.orEmpty()
+                }
+
+                val related = relatedDeferred.await()
+                val artistTracks = artistDeferred.await()
+                val localIds = recent.map { it.videoId }.toMutableSet()
+                val personalized = cleanGeneratedTracks(
+                    PlaybackSignalStore.rankByAffinity(seed?.videoId, related) + artistTracks
+                )
+                    .filter { localIds.add(it.videoId) }
+                    .take(MAX_HOME_MADE_FOR_YOU)
+
+                personalized.forEach { addHomePickCard(homePicksContainer, it) }
+
+                // Small discovery footprint. Each section is itself horizontal,
+                // so Home remains compact instead of becoming a huge vertical feed.
+                val discoveryQueries = homeDiscoverSeeds.shuffled().take(3)
+                val jobs = discoveryQueries.map { (query, label) ->
+                    async(Dispatchers.IO) {
+                        label to cleanGeneratedTracks(musicProvider.search(query)).take(8)
+                    }
+                }
+                jobs.forEach { deferred ->
+                    val (label, tracks) = deferred.await()
+                    if (tracks.isNotEmpty()) addDiscoverSection(label, tracks)
+                }
             }
 
             if (recent.isEmpty() && homeDiscoverContainer.childCount == 0) {
@@ -978,6 +986,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun addHomePickCard(container: LinearLayout, track: MusicTrack) {
+        if (track.videoId.isBlank() || !homePickIds.add(track.videoId)) return
         val card = LayoutInflater.from(this).inflate(R.layout.item_home_pick, container, false)
         val art = card.findViewById<ImageView>(R.id.pick_art)
         val title = card.findViewById<TextView>(R.id.pick_title)
@@ -2067,28 +2076,70 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Used by Play all / Shuffle on playlists, favorites, downloads, and history. */
+    /** Used by Play all / Shuffle on playlists, favorites, downloads, and history.
+     * This intentionally does NOT call playTrack(), because playTrack() may build an
+     * automatic related-song queue. Explicit list playback must contain only the
+     * requested music, otherwise related YouTube videos can race with setMediaItems()
+     * and duplicate or replace queue entries.
+     */
     private fun playTrackListDirectly(tracks: List<MusicTrack>, shuffled: Boolean) {
         val controller = mediaController ?: return
         val ordered = dedupeTracks(if (shuffled) tracks.shuffled() else tracks)
-        val first = ordered.firstOrNull() ?: return
-        val rest = ordered.drop(1)
+            .filter { cleanGeneratedTracks(listOf(it)).isNotEmpty() }
+            .take(50)
+        if (ordered.isEmpty()) return
 
         playJob?.cancel()
         queueBuildJob?.cancel()
         closeListScreen()
-        playTrack(first)
+        openNowPlaying()
+        npQueueContainer.removeAllViews()
+        npQueueEmpty.visibility = View.VISIBLE
+        npQueueEmpty.text = "Preparing ${ordered.size} songs..."
 
-        if (rest.isNotEmpty()) {
-            queueBuildJob = screenScope.launch {
-                for (candidate in rest.take(50)) {
-                    val streamUrl = withContext(Dispatchers.IO) { musicProvider.getStreamUrl(candidate.videoId) }
-                    if (streamUrl.isNullOrBlank()) continue
-                    if (mediaController !== controller) return@launch
-                    controller.addMediaItem(buildMediaItem(candidate, streamUrl))
-                    refreshQueueList()
+        queueBuildJob = screenScope.launch {
+            val mediaItems = mutableListOf<MediaItem>()
+
+            // Resolve the selected list in parallel. We still cap the list so a
+            // huge playlist cannot create an enormous in-memory queue on low-end devices.
+            coroutineScope {
+                val deferred = ordered.map { track ->
+                    async(Dispatchers.IO) {
+                        val downloaded = DownloadStore.get(track.videoId)
+                        val streamUrl = downloaded?.streamUrl
+                            ?: musicProvider.getStreamUrl(track.videoId)
+                        if (streamUrl.isNullOrBlank()) null
+                        else buildMediaItem(track, streamUrl)
+                    }
+                }
+                deferred.forEach { job ->
+                    job.await()?.let { mediaItems.add(it) }
                 }
             }
+
+            if (mediaItems.isEmpty() || mediaController !== controller) {
+                npQueueEmpty.text = "Couldn't prepare this playlist"
+                return@launch
+            }
+
+            controller.setMediaItems(mediaItems, 0, 0L)
+            controller.prepare()
+            controller.play()
+
+            val first = ordered.firstOrNull { track ->
+                mediaItems.any { it.mediaId == track.videoId }
+            }
+            first?.let {
+                PlayHistoryStore.recordPlay(it)
+                npTrackTitle.text = it.title
+                npTrackArtist.text = it.artist.ifBlank { "Unknown artist" }
+                miniTitle.text = it.title
+                miniArtist.text = it.artist
+            }
+
+            npQueueEmpty.visibility = View.GONE
+            refreshNowPlayingMetadata()
+            refreshQueueList()
         }
     }
 
